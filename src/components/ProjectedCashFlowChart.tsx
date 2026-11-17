@@ -67,7 +67,7 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
           .reduce((acc, s) => acc + s.amount, 0)
       : 0;
 
-    // Scheduled late-month recurring items (e.g., cloud infrastructure / wireless / gym add-on or upcoming cycle)
+    // Scheduled late-month recurring items
     const upcomingScheduledRecurring: Record<number, { label: string; amount: number }> = {
       20: { label: 'AT&T Wireless & Cloud Backup Autopay', amount: 88.0 },
       24: { label: 'NYTimes + Substack Monthly Digest', amount: 24.0 },
@@ -78,8 +78,6 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
     let runningIncome = 0;
     let runningFixedSpend = 0;
     let runningDiscretionarySpend = 0;
-
-    const octDailyTotalRate = summaryMetrics.previousMonthTotalSpending / 30;
 
     for (let day = 1; day <= totalDaysInNov; day++) {
       const dateStr = `2026-11-${String(day).padStart(2, '0')}`;
@@ -231,28 +229,28 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
   }, [minVal, maxVal]);
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
       {/* Header & Scenario Controls */}
-      <div className="p-5 sm:px-6 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="p-5 sm:px-6 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h3 className="text-base font-semibold text-slate-900">
+          <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             Projected Monthly Cash Flow & End-of-Month Balance Forecast
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Combines actual Nov 1–17 ledger records with historical discretionary velocity ({formatCurrency(forecastData.effectiveDailyDiscretionary)}/day) and fixed recurring obligations
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Metric Toggle */}
-          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+          <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
             <button
               type="button"
               onClick={() => setChartMetricMode('net_balance')}
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                 chartMetricMode === 'net_balance'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
               Net Cash Flow Balance
@@ -262,8 +260,8 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
               onClick={() => setChartMetricMode('cumulative_spend')}
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                 chartMetricMode === 'cumulative_spend'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
               }`}
             >
               Cumulative Spend vs. Oct
@@ -275,7 +273,7 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
             aria-label="Select projection trend scenario"
             value={scenario}
             onChange={(e) => setScenario(e.target.value as ForecastScenario)}
-            className="px-3 py-1.5 text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:border-slate-900"
+            className="px-3 py-1.5 text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
           >
             <option value="baseline">Trend: Historical Baseline (1.0x)</option>
             <option value="conservative">Trend: Conservative Spend (-22%)</option>
@@ -289,7 +287,7 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
             className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
               excludeUnusedSubs
                 ? 'bg-emerald-700 text-white border-emerald-700'
-                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
             }`}
           >
             {excludeUnusedSubs
@@ -300,47 +298,55 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
       </div>
 
       {/* 4-Column Forecast KPI Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200 border-b border-slate-200 bg-slate-50/40">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200 dark:divide-slate-800 border-b border-slate-200 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-800/30">
         <div className="p-4 sm:px-6">
-          <div className="text-xs text-slate-500">Current Net Balance (Nov 17 Actual)</div>
-          <div className="mt-1 text-lg font-semibold font-mono tabular-nums text-slate-900">
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Current Net Balance (Nov 17 Actual)
+          </div>
+          <div className="mt-1 text-lg font-semibold font-mono tabular-nums text-slate-900 dark:text-slate-100">
             {formatCurrency(forecastData.nov17Point.netCashFlowBalance, true)}
           </div>
-          <div className="mt-0.5 text-[11px] font-mono text-slate-500">
+          <div className="mt-0.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
             Income {formatCurrency(forecastData.nov17Point.cumulativeIncome)} − Spend{' '}
             {formatCurrency(forecastData.nov17Point.cumulativeTotalSpend)}
           </div>
         </div>
 
         <div className="p-4 sm:px-6">
-          <div className="text-xs text-slate-500">Projected Remaining Spend (Nov 18–30)</div>
-          <div className="mt-1 text-lg font-semibold font-mono tabular-nums text-amber-700">
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Projected Remaining Spend (Nov 18–30)
+          </div>
+          <div className="mt-1 text-lg font-semibold font-mono tabular-nums text-amber-700 dark:text-amber-400">
             {formatCurrency(forecastData.projectedRemainingSpend)}
           </div>
-          <div className="mt-0.5 text-[11px] font-mono text-slate-500">
+          <div className="mt-0.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
             $222.00 fixed bills + {formatCurrency(forecastData.projectedRemainingSpend - 222)}{' '}
             trend spend
           </div>
         </div>
 
         <div className="p-4 sm:px-6">
-          <div className="text-xs text-slate-500">Forecasted End-of-Month Spend (Nov 30)</div>
-          <div className="mt-1 text-lg font-semibold font-mono tabular-nums text-slate-900">
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Forecasted End-of-Month Spend (Nov 30)
+          </div>
+          <div className="mt-1 text-lg font-semibold font-mono tabular-nums text-slate-900 dark:text-slate-100">
             {formatCurrency(forecastData.nov30Point.cumulativeTotalSpend)}
           </div>
-          <div className="mt-0.5 text-[11px] font-mono text-slate-500">
+          <div className="mt-0.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
             Fixed: {formatCurrency(forecastData.nov30Point.cumulativeFixedSpend)} · Discretionary:{' '}
             {formatCurrency(forecastData.nov30Point.cumulativeDiscretionarySpend)}
           </div>
         </div>
 
         <div className="p-4 sm:px-6">
-          <div className="text-xs text-slate-500">Forecasted End-of-Month Net Balance</div>
+          <div className="text-xs text-slate-500 dark:text-slate-400">
+            Forecasted End-of-Month Net Balance
+          </div>
           <div
             className={`mt-1 text-lg font-semibold font-mono tabular-nums flex items-center gap-1.5 ${
               forecastData.nov30Point.netCashFlowBalance >= 0
-                ? 'text-emerald-700'
-                : 'text-rose-700'
+                ? 'text-emerald-700 dark:text-emerald-400'
+                : 'text-rose-700 dark:text-rose-400'
             }`}
           >
             {forecastData.nov30Point.netCashFlowBalance >= 0 ? (
@@ -350,7 +356,7 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
             )}
             <span>{formatCurrency(forecastData.nov30Point.netCashFlowBalance, true)}</span>
           </div>
-          <div className="mt-0.5 text-[11px] font-mono text-slate-500">
+          <div className="mt-0.5 text-[11px] font-mono text-slate-500 dark:text-slate-400">
             Projected savings rate:{' '}
             {(
               (forecastData.nov30Point.netCashFlowBalance /
@@ -365,24 +371,24 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
       {/* SVG Forecast Chart + Interactive Day Inspector */}
       <div className="p-5 sm:px-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex flex-wrap items-center gap-4 text-slate-600">
+          <div className="flex flex-wrap items-center gap-4 text-slate-600 dark:text-slate-400">
             <span className="inline-flex items-center gap-1.5">
-              <span className="w-3 h-0.5 bg-slate-900 inline-block" />
+              <span className="w-3 h-0.5 bg-slate-900 dark:bg-slate-100 inline-block" />
               <span>Actual Ledger (Nov 1 – Nov 17)</span>
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <span className="w-3 h-0.5 border-b-2 border-dashed border-emerald-600 inline-block" />
+              <span className="w-3 h-0.5 border-b-2 border-dashed border-emerald-600 dark:border-emerald-400 inline-block" />
               <span>Projected Trajectory (Nov 18 – Nov 30)</span>
             </span>
             {chartMetricMode === 'cumulative_spend' && (
               <span className="inline-flex items-center gap-1.5">
-                <span className="w-3 h-0.5 bg-slate-400 inline-block" />
+                <span className="w-3 h-0.5 bg-slate-400 dark:bg-slate-500 inline-block" />
                 <span>October Historical Spend Curve</span>
               </span>
             )}
           </div>
 
-          <div className="text-xs font-mono text-slate-500">
+          <div className="text-xs font-mono text-slate-500 dark:text-slate-400">
             Hover or click any day on chart to inspect daily breakdown
           </div>
         </div>
@@ -405,7 +411,7 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
                     y1={y}
                     x2={svgWidth - padRight}
                     y2={y}
-                    stroke="#e2e8f0"
+                    className="stroke-slate-200 dark:stroke-slate-800"
                     strokeDasharray={tickVal === 0 ? undefined : '3 3'}
                     strokeWidth={tickVal === 0 ? 1.25 : 1}
                   />
@@ -413,7 +419,7 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
                     x={padLeft - 8}
                     y={y + 4}
                     textAnchor="end"
-                    className="fill-slate-400 text-[10px] font-mono"
+                    className="fill-slate-400 dark:fill-slate-500 text-[10px] font-mono"
                   >
                     {formatCurrency(tickVal).replace('.00', '')}
                   </text>
@@ -427,34 +433,37 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
               y={padTop}
               width={getX(30) - getX(17)}
               height={plotHeight}
-              fill="#f8fafc"
+              className="fill-slate-50 dark:fill-slate-800/40"
             />
             <line
               x1={getX(17)}
               y1={padTop}
               x2={getX(17)}
               y2={padTop + plotHeight}
-              stroke="#94a3b8"
+              className="stroke-slate-400 dark:stroke-slate-600"
               strokeDasharray="4 4"
               strokeWidth={1}
             />
             <text
               x={getX(17) + 6}
               y={padTop + 12}
-              className="fill-slate-500 text-[10px] font-mono"
+              className="fill-slate-500 dark:fill-slate-400 text-[10px] font-mono"
             >
               Today (Nov 17) → Forecast Window
             </text>
 
             {/* Area under Actual Curve */}
-            <path d={actualAreaD} fill="rgba(15, 23, 42, 0.05)" />
+            <path
+              d={actualAreaD}
+              className="fill-slate-900/5 dark:fill-slate-100/10"
+            />
 
             {/* Optional October Reference Line in Cumulative Spend Mode */}
             {chartMetricMode === 'cumulative_spend' && octoberRefPathD && (
               <path
                 d={octoberRefPathD}
                 fill="none"
-                stroke="#94a3b8"
+                className="stroke-slate-400 dark:stroke-slate-500"
                 strokeWidth={1.5}
                 strokeDasharray="2 3"
               />
@@ -464,7 +473,7 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
             <path
               d={actualPathD}
               fill="none"
-              stroke="#0f172a"
+              className="stroke-slate-900 dark:stroke-slate-100"
               strokeWidth={2.25}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -474,7 +483,7 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
             <path
               d={projectedPathD}
               fill="none"
-              stroke="#059669"
+              className="stroke-emerald-600 dark:stroke-emerald-400"
               strokeWidth={2.25}
               strokeDasharray="5 4"
               strokeLinecap="round"
@@ -487,7 +496,7 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
               y1={padTop}
               x2={getX(activePoint.day)}
               y2={padTop + plotHeight}
-              stroke="#0f172a"
+              className="stroke-slate-900 dark:stroke-slate-100"
               strokeOpacity={0.25}
               strokeWidth={1}
             />
@@ -530,8 +539,8 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
                     r={isSelected ? 5 : pt.day === 17 || pt.day === 30 ? 3.5 : 2}
                     className={
                       pt.isProjected
-                        ? 'fill-emerald-600 stroke-white'
-                        : 'fill-slate-900 stroke-white'
+                        ? 'fill-emerald-600 dark:fill-emerald-400 stroke-white dark:stroke-slate-900'
+                        : 'fill-slate-900 dark:fill-slate-100 stroke-white dark:stroke-slate-900'
                     }
                     strokeWidth={1.5}
                   />
@@ -543,7 +552,9 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
                       y={svgHeight - 8}
                       textAnchor="middle"
                       className={`text-[10px] font-mono ${
-                        pt.day === 17 ? 'fill-slate-900 font-semibold' : 'fill-slate-400'
+                        pt.day === 17
+                          ? 'fill-slate-900 dark:fill-slate-100 font-semibold'
+                          : 'fill-slate-400 dark:fill-slate-500'
                       }`}
                     >
                       Nov {pt.day}
@@ -556,49 +567,51 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
         </div>
 
         {/* Selected Day Breakdown Inspector Bar */}
-        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+        <div className="p-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2.5 flex-wrap">
-            <Calendar className="w-4 h-4 text-slate-500 shrink-0" />
-            <span className="font-mono font-semibold text-slate-900">
+            <Calendar className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />
+            <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">
               {activePoint.dateStr}
             </span>
-            <span className="text-slate-500">
+            <span className="text-slate-500 dark:text-slate-400">
               · {activePoint.isProjected ? 'Projected Forecast' : 'Actual Recorded Ledger'}
             </span>
             {activePoint.scheduledEvents.length > 0 && (
-              <span className="text-slate-700 font-medium">
+              <span className="text-slate-700 dark:text-slate-300 font-medium">
                 · {activePoint.scheduledEvents.slice(0, 2).join(', ')}
               </span>
             )}
           </div>
 
           <div className="flex flex-wrap items-center gap-3 font-mono tabular-nums">
-            <span className="text-slate-600">
+            <span className="text-slate-600 dark:text-slate-400">
               Cum. Income:{' '}
-              <strong className="text-emerald-700">
+              <strong className="text-emerald-700 dark:text-emerald-400">
                 {formatCurrency(activePoint.cumulativeIncome)}
               </strong>
             </span>
-            <span aria-hidden="true" className="text-slate-300">·</span>
-            <span className="text-slate-600">
+            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">·</span>
+            <span className="text-slate-600 dark:text-slate-400">
               Fixed Bills:{' '}
-              <strong className="text-slate-900">
+              <strong className="text-slate-900 dark:text-slate-100">
                 {formatCurrency(activePoint.cumulativeFixedSpend)}
               </strong>
             </span>
-            <span aria-hidden="true" className="text-slate-300">·</span>
-            <span className="text-slate-600">
+            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">·</span>
+            <span className="text-slate-600 dark:text-slate-400">
               Discretionary:{' '}
-              <strong className="text-slate-900">
+              <strong className="text-slate-900 dark:text-slate-100">
                 {formatCurrency(activePoint.cumulativeDiscretionarySpend)}
               </strong>
             </span>
-            <span aria-hidden="true" className="text-slate-300">·</span>
-            <span className="text-slate-600">
+            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700">·</span>
+            <span className="text-slate-600 dark:text-slate-400">
               Net Balance:{' '}
               <strong
                 className={
-                  activePoint.netCashFlowBalance >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                  activePoint.netCashFlowBalance >= 0
+                    ? 'text-emerald-700 dark:text-emerald-400'
+                    : 'text-rose-700 dark:text-rose-400'
                 }
               >
                 {formatCurrency(activePoint.netCashFlowBalance, true)}

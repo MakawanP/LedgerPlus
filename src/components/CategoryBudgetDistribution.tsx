@@ -145,15 +145,15 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
   }, [enrichedCategories, isEditingBudgets, viewFilter]);
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col justify-between">
       <div>
         {/* Header & Budget Controls */}
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-4">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">
+            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
               Category Spending Distribution & Monthly Budget Limits
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Highlights categories approaching (≥80%) or exceeding (&gt;100%) monthly limits · Click any limit to edit
             </p>
           </div>
@@ -164,8 +164,8 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
               onClick={() => (isEditingBudgets ? setIsEditingBudgets(false) : handleOpenBatchEdit())}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
                 isEditingBudgets
-                  ? 'bg-slate-100 text-slate-900 border-slate-300'
-                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border-slate-300 dark:border-slate-600'
+                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -176,7 +176,7 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
               <button
                 type="button"
                 onClick={onNavigateReports}
-                className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:text-slate-900 whitespace-nowrap shrink-0 ml-1"
+                className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 whitespace-nowrap shrink-0 ml-1"
               >
                 <span>Full Reports</span>
                 <ArrowRight className="w-3.5 h-3.5" />
@@ -186,45 +186,45 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
         </div>
 
         {/* Overall Monthly Budget Utilization Strip */}
-        <div className="mb-4 p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+        <div className="mb-4 p-3.5 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 rounded-lg space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="text-slate-600">
+            <div className="text-slate-600 dark:text-slate-300">
               <span>Monthly Budget Utilization: </span>
-              <strong className="font-mono text-slate-900">
+              <strong className="font-mono text-slate-900 dark:text-slate-100">
                 {formatCurrency(budgetSummary.totalSpent)}
               </strong>
               <span> of </span>
-              <strong className="font-mono text-slate-900">
+              <strong className="font-mono text-slate-900 dark:text-slate-100">
                 {formatCurrency(budgetSummary.totalBudgeted)}
               </strong>
-              <span className="font-mono text-slate-500">
+              <span className="font-mono text-slate-500 dark:text-slate-400">
                 {' '}({budgetSummary.overallPercent.toFixed(1)}%)
               </span>
             </div>
 
             <div className="flex items-center gap-2 text-xs">
-              <span className="text-rose-700 font-medium font-mono">
+              <span className="text-rose-700 dark:text-rose-400 font-medium font-mono">
                 {budgetSummary.exceededCount} exceeded
               </span>
-              <span aria-hidden="true" className="text-slate-300">·</span>
-              <span className="text-amber-700 font-medium font-mono">
+              <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">·</span>
+              <span className="text-amber-700 dark:text-amber-400 font-medium font-mono">
                 {budgetSummary.approachingCount} approaching (≥80%)
               </span>
-              <span aria-hidden="true" className="text-slate-300">·</span>
-              <span className="text-emerald-700 font-medium font-mono">
+              <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">·</span>
+              <span className="text-emerald-700 dark:text-emerald-400 font-medium font-mono">
                 {budgetSummary.onTrackCount} on track
               </span>
             </div>
           </div>
 
-          <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+          <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${
                 budgetSummary.overallPercent > 100
-                  ? 'bg-rose-600'
+                  ? 'bg-rose-600 dark:bg-rose-500'
                   : budgetSummary.overallPercent >= 85
-                  ? 'bg-amber-500'
-                  : 'bg-slate-900'
+                  ? 'bg-amber-500 dark:bg-amber-400'
+                  : 'bg-slate-900 dark:bg-slate-200'
               }`}
               style={{ width: `${Math.min(100, Math.max(2, budgetSummary.overallPercent))}%` }}
             />
@@ -234,7 +234,7 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
         {/* Filter Segmented Bar (when not in batch edit mode) */}
         {!isEditingBudgets && (
           <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/90 rounded-lg">
               {(
                 [
                   { id: 'active', label: 'Active Spend Categories' },
@@ -253,8 +253,8 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
                   onClick={() => setViewFilter(tab.id)}
                   className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
                     viewFilter === tab.id
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
                   }`}
                 >
                   {tab.label}
@@ -262,7 +262,7 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
               ))}
             </div>
 
-            <span className="text-[11px] text-slate-400">
+            <span className="text-[11px] text-slate-400 dark:text-slate-500">
               80% threshold marker shown on each progress bar
             </span>
           </div>
@@ -275,18 +275,18 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
               {enrichedCategories.map((cat) => (
                 <div
                   key={cat.category}
-                  className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-3"
+                  className="p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-between gap-3"
                 >
                   <div className="min-w-0">
-                    <div className="text-xs font-medium text-slate-900 truncate">
+                    <div className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate">
                       {cat.category}
                     </div>
-                    <div className="text-[11px] font-mono text-slate-500">
+                    <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
                       Nov spent: {formatCurrency(cat.amount)}
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-xs font-mono text-slate-400">$</span>
+                    <span className="text-xs font-mono text-slate-400 dark:text-slate-500">$</span>
                     <input
                       type="number"
                       min="0"
@@ -299,28 +299,28 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
                           [cat.category]: e.target.value,
                         }))
                       }
-                      className="w-24 px-2.5 py-1 text-xs font-mono text-right bg-white border border-slate-300 rounded-md text-slate-900 focus:outline-none focus:border-slate-900"
+                      className="w-24 px-2.5 py-1 text-xs font-mono text-right bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
                     />
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-              <span className="text-xs text-slate-500">
+            <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
                 Set $0 to mark a category as unbudgeted.
               </span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsEditingBudgets(false)}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900"
+                  className="px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg hover:bg-slate-800 dark:hover:bg-white transition-colors"
                 >
                   <Check className="w-3.5 h-3.5" />
                   <span>Save Budget Limits</span>
@@ -332,7 +332,7 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
           /* Category Distribution & Budget Progress Bars List */
           <div className="space-y-3.5">
             {displayedCategories.length === 0 ? (
-              <div className="py-8 text-center text-xs text-slate-500">
+              <div className="py-8 text-center text-xs text-slate-500 dark:text-slate-400">
                 No categories match the selected filter.
               </div>
             ) : (
@@ -345,10 +345,10 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
                     : Math.min(100, Math.max(cat.amount > 0 ? 3 : 0, cat.percentageOfTotal));
 
                 const barColorClass = isExceeded
-                  ? 'bg-rose-600'
+                  ? 'bg-rose-600 dark:bg-rose-500'
                   : isApproaching
-                  ? 'bg-amber-500'
-                  : 'bg-slate-900';
+                  ? 'bg-amber-500 dark:bg-amber-400'
+                  : 'bg-slate-900 dark:bg-slate-200';
 
                 const isInlineEditing = inlineEditCategory === cat.category;
 
@@ -357,24 +357,24 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
                     key={cat.category}
                     className={`p-3 rounded-lg border transition-colors ${
                       isExceeded
-                        ? 'bg-rose-50/30 border-rose-200/80'
+                        ? 'bg-rose-50/30 dark:bg-rose-950/20 border-rose-200/80 dark:border-rose-900/60'
                         : isApproaching
-                        ? 'bg-amber-50/30 border-amber-200/80'
-                        : 'bg-white border-slate-200/80 hover:border-slate-300'
+                        ? 'bg-amber-50/30 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-900/60'
+                        : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
                     }`}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                       {/* Left: Category Name + Count + Status Label */}
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-slate-900">
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">
                           {cat.category}
                         </span>
-                        <span className="text-slate-400 font-mono">
+                        <span className="text-slate-400 dark:text-slate-500 font-mono">
                           ({cat.transactionCount})
                         </span>
 
                         {isExceeded && (
-                          <span className="inline-flex items-center gap-1 text-rose-700 font-medium">
+                          <span className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-400 font-medium">
                             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                             <span>
                               Exceeded by {formatCurrency(Math.abs(cat.remainingOrOver))}
@@ -383,7 +383,7 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
                         )}
 
                         {isApproaching && (
-                          <span className="inline-flex items-center gap-1 text-amber-700 font-medium">
+                          <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 font-medium">
                             <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                             <span>
                               Approaching limit · {formatCurrency(cat.remainingOrOver)} left
@@ -392,7 +392,7 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
                         )}
 
                         {cat.status === 'on_track' && cat.limit > 0 && (
-                          <span className="inline-flex items-center gap-1 text-emerald-700">
+                          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
                             <CheckCircle2 className="w-3 h-3 shrink-0" />
                             <span>{formatCurrency(cat.remainingOrOver)} left</span>
                           </span>
@@ -404,15 +404,15 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
                         <span
                           className={`font-semibold ${
                             isExceeded
-                              ? 'text-rose-700'
+                              ? 'text-rose-700 dark:text-rose-400'
                               : isApproaching
-                              ? 'text-amber-800'
-                              : 'text-slate-900'
+                              ? 'text-amber-800 dark:text-amber-300'
+                              : 'text-slate-900 dark:text-slate-100'
                           }`}
                         >
                           {formatCurrency(cat.amount)}
                         </span>
-                        <span className="text-slate-400">/</span>
+                        <span className="text-slate-400 dark:text-slate-500">/</span>
 
                         {isInlineEditing ? (
                           <div className="inline-flex items-center gap-1">
@@ -427,12 +427,12 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
                                 if (e.key === 'Enter') handleCommitInlineEdit(cat.category);
                                 if (e.key === 'Escape') setInlineEditCategory(null);
                               }}
-                              className="w-20 px-1.5 py-0.5 text-xs font-mono bg-white border border-slate-900 rounded text-slate-900 focus:outline-none"
+                              className="w-20 px-1.5 py-0.5 text-xs font-mono bg-white dark:bg-slate-800 border border-slate-900 dark:border-slate-400 rounded text-slate-900 dark:text-slate-100 focus:outline-none"
                             />
                             <button
                               type="button"
                               onClick={() => handleCommitInlineEdit(cat.category)}
-                              className="px-1.5 py-0.5 text-[11px] bg-slate-900 text-white rounded"
+                              className="px-1.5 py-0.5 text-[11px] bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded"
                             >
                               Save
                             </button>
@@ -445,7 +445,7 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
                               setInlineEditCategory(cat.category);
                               setInlineEditValue(String(cat.limit));
                             }}
-                            className="text-slate-600 hover:text-slate-900 underline decoration-dotted underline-offset-4"
+                            className="text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 underline decoration-dotted underline-offset-4"
                           >
                             {cat.limit > 0 ? `${formatCurrency(cat.limit)} limit` : 'Set limit'}
                           </button>
@@ -455,10 +455,10 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
                           <span
                             className={`ml-1 text-[11px] ${
                               isExceeded
-                                ? 'text-rose-700 font-semibold'
+                                ? 'text-rose-700 dark:text-rose-400 font-semibold'
                                 : isApproaching
-                                ? 'text-amber-700 font-semibold'
-                                : 'text-slate-500'
+                                ? 'text-amber-700 dark:text-amber-400 font-semibold'
+                                : 'text-slate-500 dark:text-slate-400'
                             }`}
                           >
                             ({cat.utilizationPercent.toFixed(0)}%)
@@ -468,13 +468,13 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
                     </div>
 
                     {/* Progress Bar against Budget Limit with 80% Warning Tick */}
-                    <div className="relative w-full h-2 bg-slate-100 rounded-full overflow-hidden mt-2">
+                    <div className="relative w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mt-2">
                       {/* 80% Approaching Threshold Marker */}
                       {cat.limit > 0 && (
                         <div
                           aria-hidden="true"
                           title="80% Approaching Limit Threshold"
-                          className="absolute top-0 bottom-0 left-[80%] w-px bg-slate-300 z-10"
+                          className="absolute top-0 bottom-0 left-[80%] w-px bg-slate-300 dark:bg-slate-600 z-10"
                         />
                       )}
                       <div
@@ -492,9 +492,11 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
 
       {/* Zero-Dollar Categories Footnote */}
       {!isEditingBudgets && (
-        <div className="mt-5 pt-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+        <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
           <div>
-            <span className="font-medium text-slate-700">Zero spend this month: </span>
+            <span className="font-medium text-slate-700 dark:text-slate-300">
+              Zero spend this month:{' '}
+            </span>
             {categoryBreakdown
               .filter((c) => c.amount === 0)
               .map((c) => c.category)
@@ -504,7 +506,7 @@ export const CategoryBudgetDistribution: React.FC<CategoryBudgetDistributionProp
             <button
               type="button"
               onClick={() => setViewFilter('all')}
-              className="text-slate-700 hover:text-slate-900 underline underline-offset-4"
+              className="text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 underline underline-offset-4"
             >
               Show all 16 categories
             </button>

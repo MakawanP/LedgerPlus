@@ -6,6 +6,7 @@ import {
   Transaction,
 } from '../types/finance';
 import { formatCurrency } from '../utils/financeMetrics';
+import { MerchantLogo } from './MerchantLogo';
 
 interface UncertainQueuePanelProps {
   transactions: Transaction[];
@@ -27,14 +28,16 @@ export const UncertainQueuePanel: React.FC<UncertainQueuePanelProps> = ({
 
   if (uncertainItems.length === 0 && anomalyItems.length === 0) {
     return (
-      <div className="bg-white border border-slate-200 rounded-xl px-6 py-4 flex items-center justify-between">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <p className="text-sm text-slate-700">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <p className="text-sm text-slate-700 dark:text-slate-300">
             All November transactions are confidently categorized and reconciled across Gmail, Apple Pay, and Bank feeds.
           </p>
         </div>
-        <span className="text-xs font-mono text-slate-500">0 uncertain items</span>
+        <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
+          0 uncertain items
+        </span>
       </div>
     );
   }
@@ -42,38 +45,53 @@ export const UncertainQueuePanel: React.FC<UncertainQueuePanelProps> = ({
   return (
     <section
       aria-label="Action Required: Uncertain Categorizations & Charge Alerts"
-      className="bg-white border border-slate-200 rounded-xl overflow-hidden"
+      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden"
     >
-      <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-4 bg-amber-50/40">
+      <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-4 bg-amber-50/40 dark:bg-amber-950/20">
         <div className="flex items-center gap-2.5">
-          <HelpCircle className="w-4 h-4 text-amber-700 shrink-0" />
-          <h2 className="text-sm font-semibold text-slate-900">
+          <HelpCircle className="w-4 h-4 text-amber-700 dark:text-amber-400 shrink-0" />
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
             Assistant Clarification Queue — Confirm Ambiguous Categories & Duplicate Alerts
           </h2>
         </div>
-        <div className="text-xs text-slate-600 font-mono">
+        <div className="text-xs text-slate-600 dark:text-slate-400 font-mono">
           {uncertainItems.length} uncertain {uncertainItems.length === 1 ? 'category' : 'categories'} ·{' '}
           {anomalyItems.length} flagged {anomalyItems.length === 1 ? 'charge' : 'charges'}
         </div>
       </div>
 
-      <div className="divide-y divide-slate-200">
+      <div className="divide-y divide-slate-200 dark:divide-slate-800">
         {uncertainItems.map((tx) => (
           <div
             key={tx.id}
             className="px-6 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
           >
-            <div className="space-y-1 max-w-2xl">
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 flex-wrap">
-                <span>{tx.merchant}</span>
-                <span aria-hidden="true" className="text-slate-300">·</span>
-                <span className="font-mono text-slate-900">{formatCurrency(tx.amount)}</span>
-                <span aria-hidden="true" className="text-slate-300">·</span>
-                <span className="text-xs font-normal font-mono text-slate-500">{tx.date}</span>
-                <span aria-hidden="true" className="text-slate-300">·</span>
-                <span className="text-xs font-normal text-slate-500">{tx.paymentMethod}</span>
+            <div className="flex items-start gap-3 max-w-2xl">
+              <MerchantLogo
+                merchant={tx.merchant}
+                rawDescription={tx.rawDescription}
+                transactionType={tx.transactionType}
+                paymentMethod={tx.paymentMethod}
+                size="sm"
+              />
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100 flex-wrap">
+                  <span>{tx.merchant}</span>
+                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">·</span>
+                  <span className="font-mono text-slate-900 dark:text-slate-100">
+                    {formatCurrency(tx.amount)}
+                  </span>
+                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">·</span>
+                  <span className="text-xs font-normal font-mono text-slate-500 dark:text-slate-400">
+                    {tx.date}
+                  </span>
+                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">·</span>
+                  <span className="text-xs font-normal text-slate-500 dark:text-slate-400">
+                    {tx.paymentMethod}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-400">{tx.uncertaintyReason}</p>
               </div>
-              <p className="text-xs text-slate-600">{tx.uncertaintyReason}</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -83,7 +101,7 @@ export const UncertainQueuePanel: React.FC<UncertainQueuePanelProps> = ({
                     key={suggestedCat}
                     type="button"
                     onClick={() => onResolveCategory(tx.id, suggestedCat)}
-                    className="px-3 py-1.5 text-xs font-medium bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+                    className="px-3 py-1.5 text-xs font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded-lg hover:bg-slate-800 dark:hover:bg-white transition-colors whitespace-nowrap shrink-0"
                   >
                     Assign: {suggestedCat}
                   </button>
@@ -95,7 +113,7 @@ export const UncertainQueuePanel: React.FC<UncertainQueuePanelProps> = ({
                 onChange={(e) =>
                   onResolveCategory(tx.id, e.target.value as SpendingCategory)
                 }
-                className="px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                className="px-2.5 py-1.5 text-xs bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-slate-400"
               >
                 {ALL_SPENDING_CATEGORIES.map((cat) => (
                   <option key={cat} value={cat}>
@@ -110,20 +128,31 @@ export const UncertainQueuePanel: React.FC<UncertainQueuePanelProps> = ({
         {anomalyItems.map((tx) => (
           <div
             key={`anomaly-${tx.id}`}
-            className="px-6 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-rose-50/20"
+            className="px-6 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-rose-50/20 dark:bg-rose-950/15"
           >
-            <div className="space-y-1 max-w-2xl">
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 flex-wrap">
-                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>{tx.merchant}</span>
-                <span aria-hidden="true" className="text-slate-300">·</span>
-                <span className="font-mono text-rose-700">{formatCurrency(tx.amount)}</span>
-                <span aria-hidden="true" className="text-slate-300">·</span>
-                <span className="text-xs font-normal font-mono text-slate-500">
-                  {tx.date} ({tx.status})
-                </span>
+            <div className="flex items-start gap-3 max-w-2xl">
+              <MerchantLogo
+                merchant={tx.merchant}
+                rawDescription={tx.rawDescription}
+                transactionType={tx.transactionType}
+                paymentMethod={tx.paymentMethod}
+                size="sm"
+              />
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100 flex-wrap">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                  <span>{tx.merchant}</span>
+                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">·</span>
+                  <span className="font-mono text-rose-700 dark:text-rose-400">
+                    {formatCurrency(tx.amount)}
+                  </span>
+                  <span aria-hidden="true" className="text-slate-300 dark:text-slate-600">·</span>
+                  <span className="text-xs font-normal font-mono text-slate-500 dark:text-slate-400">
+                    {tx.date} ({tx.status})
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-400">{tx.anomalyNote}</p>
               </div>
-              <p className="text-xs text-slate-600">{tx.anomalyNote}</p>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
@@ -139,7 +168,7 @@ export const UncertainQueuePanel: React.FC<UncertainQueuePanelProps> = ({
               <button
                 type="button"
                 onClick={() => onDismissAnomaly(tx.id, 'keep')}
-                className="px-3 py-1.5 text-xs font-medium bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors whitespace-nowrap shrink-0"
+                className="px-3 py-1.5 text-xs font-medium bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0"
               >
                 Acknowledge & Keep
               </button>

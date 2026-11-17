@@ -39,7 +39,12 @@ export type TransactionStatus = 'posted' | 'pending' | 'refunded';
 
 export type TransactionType = 'purchase' | 'refund' | 'income' | 'transfer';
 
-export type DataSource = 'Gmail' | 'Bank Statement' | 'Apple Pay' | 'Uploaded Statement';
+export type DataSource =
+  | 'Gmail'
+  | 'Bank Statement'
+  | 'Apple Pay'
+  | 'Uploaded Statement'
+  | 'Cash / Manual';
 
 export interface SourceRecord {
   source: DataSource;
@@ -94,14 +99,29 @@ export interface SubscriptionItem {
   merchant: string;
   category: SpendingCategory;
   amount: number;
+  previousAmount?: number;
+  inactiveMonths?: number;
+  alertDismissed?: boolean;
   frequency: SubscriptionFrequency;
   billingDayOrDate: string;
   paymentMethod: string;
   source: DataSource;
   estimatedAnnualCost: number;
-  status: 'Active' | 'Unused / Review' | 'Price Increased';
+  status: 'Active' | 'Unused / Review' | 'Price Increased' | 'Canceled';
   usageNote?: string;
   lastChargedDate: string;
+}
+
+export interface SavingsGoal {
+  id: string;
+  name: string;
+  categoryLabel: string;
+  targetAmount: number;
+  currentSaved: number;
+  monthlyContribution: number;
+  targetDate: string;
+  linkedAccount: string;
+  priority: 'High' | 'Medium' | 'Flexible';
 }
 
 export interface SpendingInsight {
@@ -132,3 +152,4 @@ export interface ConnectedSourceStatus {
   duplicatesMerged: number;
   status: 'Synced' | 'Attention';
 }
+
