@@ -4,6 +4,27 @@
 
 ---
 
+## UI Demo & Screenshots
+
+### 1. Windows Desktop Overview, Local PC Vault & Category Budgets
+> Executive 8-metric running summary, linked local Windows vault (`data/local-ledger-vault.json` + `Ctrl+S` native PC file sync), automated Apple Pay & `data/inbox/` background pull status, category budget threshold bars, and personal savings vaults.
+
+![LedgerPulse Windows Desktop Overview Dashboard](./src/assets/images/ui_overview_dashboard_1794953972355.jpg)
+
+### 2. Unified Ledger, Cash Flow Forecasting & Multimodal Receipt OCR
+
+| Unified Transaction Ledger & Provenance Audit (Light Mode) | Projected Cash Flow & Subscription Vigilance |
+| :---: | :---: |
+| ![Unified Transaction Ledger and Cross-Source Provenance Audit](./src/assets/images/ui_transaction_ledger_1794953973764.jpg) | ![Monthly Cash Flow Forecast and Subscription Vigilance Alerts](./src/assets/images/ui_cashflow_reports_1794953978636.jpg) |
+| *Searchable ledger with automated merchant logos and expandable cross-source duplicate verification (`$0.00` double-counted).* | *Interactive end-of-month balance trajectory with simulated unused-subscription cancellation and price-hike alerts.* |
+
+### 3. Multimodal Receipt & PDF Statement Vision OCR
+> Drag-and-drop receipt photos or PDF bank statements from Windows Explorer (or paste via `Ctrl+V`) to transcribe line items, tax, tip, and exact total charged before reconciling against existing ledger entries.
+
+![Multimodal Receipt and Statement Vision OCR Modal](./src/assets/images/ui_receipt_ocr_1794953979139.jpg)
+
+---
+
 ## Core Capabilities & Features
 
 ### 1. Multi-Source Transaction Collection & Multimodal Receipt OCR
@@ -81,6 +102,7 @@
 │   ├── apple-pay-queue.json            # Queued incoming Apple Pay / card webhook notifications
 │   └── inbox/                          # Watched folder for .eml receipts, CSVs, PDFs & images
 └── src/
+    ├── assets/images/                  # UI demo screenshots & visual assets for GitHub README
     ├── App.tsx                         # Main Windows desktop workspace, local vault sync & navigation
     ├── index.css                       # Typography, Tailwind CSS v4 setup & custom dark variant
     ├── types/finance.ts                # Core TypeScript models & 16 spending categories
