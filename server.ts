@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
@@ -7,6 +8,47 @@ import { GoogleGenAI, Type } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const DATA_DIR = path.join(__dirname, 'data');
+const INBOX_DIR = path.join(DATA_DIR, 'inbox');
+const PROCESSED_INBOX_DIR = path.join(INBOX_DIR, 'processed');
+const VAULT_FILE_PATH = path.join(DATA_DIR, 'local-ledger-vault.json');
+const APPLE_PAY_QUEUE_PATH = path.join(DATA_DIR, 'apple-pay-queue.json');
+
+function ensureLocalDataDirs() {
+  fs.mkdirSync(PROCESSED_INBOX_DIR, { recursive: true });
+}
+
+interface QueuedApplePayAlert {
+  id: string;
+  receivedAt: string;
+  rawNotification: string;
+}
+
+function readApplePayQueue(): QueuedApplePayAlert[] {
+  try {
+    ensureLocalDataDirs();
+    if (!fs.existsSync(APPLE_PAY_QUEUE_PATH)) return [];
+    const raw = fs.readFileSync(APPLE_PAY_QUEUE_PATH, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeApplePayQueue(queue: QueuedApplePayAlert[]) {
+  ensureLocalDataDirs();
+  fs.writeFileSync(APPLE_PAY_QUEUE_PATH, JSON.stringify(queue, null, 2), 'utf-8');
+}
+
+const SAMPLE_APPLE_PAY_ALERTS = [
+  'Apple Pay Notification [2026-11-17 13:42]: $16.45 at Sweetgreen (Chase Sapphire ••4821) — Salad bowl & sparkling water.',
+  'Apple Pay Notification [2026-11-17 14:05]: $48.90 at SQ *TERMINAL 42B VENTURES (Apple Card ••2019) — Point-of-sale tap.',
+  'Apple Pay Notification [2026-11-17 08:42]: $6.75 at Blue Bottle Coffee (Apple Pay · Chase Sapphire ••4821) — Espresso & pastry.',
+  'Apple Pay Notification [2026-11-17 15:18]: $34.20 at Uber Trip (Apple Pay · Amex Gold ••1094) — Downtown ride.',
+];
+let sampleAlertCursor = 0;
 
 const ALLOWED_CATEGORIES = [
   'Food & Restaurants',
@@ -103,10 +145,346 @@ async function fetchBrandIconFromProviders(
 }
 
 async function startServer() {
+  ensureLocalDataDirs();
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(express.json({ limit: '25mb' }));
+  app.use(express.json({ limit: '30mb' }));
+
+  // Local Windows Disk Vault: Read saved vault from PC disk (data/local-ledger-vault.json)
+  app.get('/api/local-vault', (_req, res) => {
+    try {
+      ensureLocalDataDirs();
+      if (!fs.existsSync(VAULT_FILE_PATH)) {
+        return res.json({
+          exists: false,
+          vaultFilePath: VAULT_FILE_PATH,
+          inboxDirPath: INBOX_DIR,
+        });
+      }
+      const stats = fs.statSync(VAULT_FILE_PATH);
+      const raw = fs.readFileSync(VAULT_FILE_PATH, 'utf-8');
+      const vault = JSON.parse(raw);
+      return res.json({
+        exists: true,
+        vault,
+        vaultFilePath: VAULT_FILE_PATH,
+        inboxDirPath: INBOX_DIR,
+        fileSizeBytes: stats.size,
+        updatedAt: stats.mtime.toISOString(),
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        error: error?.message || 'Failed to read local Windows vault file.',
+      });
+    }
+  });
+
+  // Local Windows Disk Vault: Persist full vault state directly to PC disk
+  app.post('/api/local-vault', (req, res) => {
+    try {
+      ensureLocalDataDirs();
+      const payload = {
+        ...req.body,
+        savedAt: new Date().toISOString(),
+      };
+      const serialized = JSON.stringify(payload, null, 2);
+      fs.writeFileSync(VAULT_FILE_PATH, serialized, 'utf-8');
+      const stats = fs.statSync(VAULT_FILE_PATH);
+      return res.json({
+        saved: true,
+        vaultFilePath: VAULT_FILE_PATH,
+        inboxDirPath: INBOX_DIR,
+        fileSizeBytes: stats.size,
+        updatedAt: stats.mtime.toISOString(),
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        error: error?.message || 'Failed to save local Windows vault file.',
+      });
+    }
+  });
+
+  // Apple Pay & Card Notification Webhook Receiver
+  app.post('/api/apple-pay/webhook', (req, res) => {
+    try {
+      const body = req.body || {};
+      let rawNotification = '';
+      if (typeof body.rawNotification === 'string' && body.rawNotification.trim()) {
+        rawNotification = body.rawNotification.trim();
+      } else if (body.merchant || body.amount) {
+        const dateStr = body.date || '2026-11-17';
+        const cardStr = body.card || 'Apple Pay';
+        rawNotification = `Apple Pay Alert [${dateStr}]: $${Number(body.amount || 0).toFixed(2)} at ${
+          body.merchant || 'Unknown Merchant'
+        } via ${cardStr}${body.note ? ` — ${body.note}` : ''}`;
+      } else {
+        return res.status(400).json({
+          error: 'Provide either rawNotification or { merchant, amount, card, date }.',
+        });
+      }
+
+      const queue = readApplePayQueue();
+      const entry: QueuedApplePayAlert = {
+        id: `ap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        receivedAt: new Date().toISOString(),
+        rawNotification,
+      };
+      queue.push(entry);
+      writeApplePayQueue(queue);
+
+      return res.json({
+        queued: true,
+        entry,
+        pendingQueueCount: queue.length,
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        error: error?.message || 'Failed to enqueue Apple Pay notification.',
+      });
+    }
+  });
+
+  // Simulate an incoming Apple Pay notification for testing automated local ingestion
+  app.post('/api/apple-pay/simulate', (_req, res) => {
+    const sample = SAMPLE_APPLE_PAY_ALERTS[sampleAlertCursor % SAMPLE_APPLE_PAY_ALERTS.length];
+    sampleAlertCursor += 1;
+    const queue = readApplePayQueue();
+    const entry: QueuedApplePayAlert = {
+      id: `ap-sim-${Date.now()}`,
+      receivedAt: new Date().toISOString(),
+      rawNotification: sample,
+    };
+    queue.push(entry);
+    writeApplePayQueue(queue);
+    return res.json({
+      queued: true,
+      entry,
+      pendingQueueCount: queue.length,
+    });
+  });
+
+  // Drop a sample local .eml receipt into data/inbox/ to test local folder auto-pull
+  app.post('/api/local-inbox/drop-sample', (_req, res) => {
+    try {
+      ensureLocalDataDirs();
+      const fileName = `receipt-${Date.now()}.eml`;
+      const filePath = path.join(INBOX_DIR, fileName);
+      const emlContent = [
+        'From: receipts@wholefoods.com',
+        'Subject: Your Whole Foods Market Receipt - Nov 17, 2026',
+        'Date: Tue, 17 Nov 2026 12:15:00 -0800',
+        '',
+        'Thank you for shopping at Whole Foods Market SoMa!',
+        'Date: 2026-11-17',
+        'Organic Produce & Pantry Items: $58.10',
+        'Tax: $4.30',
+        'Total Charged: $62.40',
+        'Payment Method: Apple Pay · Amex Gold ••1094',
+      ].join('\n');
+      fs.writeFileSync(filePath, emlContent, 'utf-8');
+      return res.json({
+        dropped: true,
+        fileName,
+        filePath,
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        error: error?.message || 'Failed to create sample receipt in data/inbox/.',
+      });
+    }
+  });
+
+  // Status check for pending Apple Pay alerts & local watched inbox files
+  app.get('/api/auto-pull/status', (_req, res) => {
+    try {
+      ensureLocalDataDirs();
+      const queue = readApplePayQueue();
+      const inboxFiles = fs
+        .readdirSync(INBOX_DIR, { withFileTypes: true })
+        .filter((d) => d.isFile() && !d.name.startsWith('.'))
+        .map((d) => d.name);
+
+      return res.json({
+        pendingApplePayAlerts: queue.length,
+        pendingInboxFiles: inboxFiles.length,
+        inboxFileNames: inboxFiles,
+        vaultFilePath: VAULT_FILE_PATH,
+        inboxDirPath: INBOX_DIR,
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        error: error?.message || 'Failed to read auto-pull queue status.',
+      });
+    }
+  });
+
+  // Unified Automated Pull: Drains Apple Pay webhook queue + local data/inbox/ files & parses via Gemini
+  app.post('/api/auto-pull/sync', async (req, res) => {
+    try {
+      ensureLocalDataDirs();
+      const { existingTransactions = [] } = req.body || {};
+      const queue = readApplePayQueue();
+      const inboxEntries = fs
+        .readdirSync(INBOX_DIR, { withFileTypes: true })
+        .filter((d) => d.isFile() && !d.name.startsWith('.'));
+
+      if (queue.length === 0 && inboxEntries.length === 0) {
+        return res.json({
+          pulledCount: 0,
+          extractedTransactions: [],
+          summaryNote: 'No pending Apple Pay notifications or local inbox files waiting.',
+          sourcesProcessed: 0,
+        });
+      }
+
+      const textBlocks: string[] = [];
+      const inlineMediaParts: Array<{ inlineData: { mimeType: string; data: string } }> = [];
+      const processedFilesToMove: string[] = [];
+
+      if (queue.length > 0) {
+        textBlocks.push(
+          `=== QUEUED APPLE PAY & CARD NOTIFICATIONS (${queue.length}) ===\n` +
+            queue.map((q, idx) => `[Alert ${idx + 1}] ${q.rawNotification}`).join('\n')
+        );
+      }
+
+      for (const fileEntry of inboxEntries) {
+        const fullPath = path.join(INBOX_DIR, fileEntry.name);
+        const ext = path.extname(fileEntry.name).toLowerCase();
+        if (['.eml', '.txt', '.csv', '.json', '.md', '.html'].includes(ext)) {
+          const text = fs.readFileSync(fullPath, 'utf-8').slice(0, 18000);
+          textBlocks.push(`=== LOCAL INBOX FILE: ${fileEntry.name} ===\n${text}`);
+          processedFilesToMove.push(fileEntry.name);
+        } else if (['.pdf', '.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
+          const buf = fs.readFileSync(fullPath);
+          const mimeType =
+            ext === '.pdf'
+              ? 'application/pdf'
+              : ext === '.png'
+              ? 'image/png'
+              : ext === '.webp'
+              ? 'image/webp'
+              : 'image/jpeg';
+          inlineMediaParts.push({
+            inlineData: {
+              mimeType,
+              data: buf.toString('base64'),
+            },
+          });
+          textBlocks.push(`=== ATTACHED LOCAL INBOX RECEIPT/DOCUMENT: ${fileEntry.name} ===`);
+          processedFilesToMove.push(fileEntry.name);
+        }
+      }
+
+      const ai = getGeminiClient();
+      const existingCompact = (Array.isArray(existingTransactions) ? existingTransactions : [])
+        .slice(0, 50)
+        .map((t: any) => ({
+          id: t.id,
+          date: t.date,
+          merchant: t.merchant,
+          amount: t.amount,
+          source: t.source,
+          status: t.status,
+        }));
+
+      const prompt = `You are LedgerPulse's Automated Local Ingestion Engine on Windows.
+Extract every actual transaction, refund, income, or transfer from the queued Apple Pay notifications and local inbox receipt files below.
+
+STRICT RULES:
+1. Never invent missing transactions. Extract exact dollar figures and dates (default year 2026; today is 2026-11-17).
+2. Classify each item into one of these exact categories:
+${ALLOWED_CATEGORIES.map((c) => `- ${c}`).join('\n')}
+3. Set source to "Apple Pay" for Apple Pay notifications, "Gmail" for .eml email receipts, or "Uploaded Statement" for CSV/PDF files.
+4. Deduplicate against existing ledger records so the same purchase is never double-counted:
+Existing transactions JSON:
+${JSON.stringify(existingCompact)}
+If an extracted item matches an existing purchase (same/adjacent date and same amount), set matchedExistingId to that existing transaction's id.
+5. If a merchant descriptor is ambiguous (e.g., cryptic POS code like "SQ *TERMINAL 42B VENTURES"), set uncertainCategory to true, write a short uncertaintyPrompt, and list 2-3 suggestedCategories so it is flagged for review instead of silently misclassified.
+
+Input Feeds:
+${textBlocks.join('\n\n')}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: {
+          parts: [...inlineMediaParts, { text: prompt }],
+        },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              extractedTransactions: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    date: { type: Type.STRING },
+                    merchant: { type: Type.STRING },
+                    rawDescription: { type: Type.STRING },
+                    amount: { type: Type.NUMBER },
+                    paymentMethod: { type: Type.STRING },
+                    category: { type: Type.STRING },
+                    status: { type: Type.STRING },
+                    transactionType: { type: Type.STRING },
+                    source: { type: Type.STRING },
+                    matchedExistingId: { type: Type.STRING },
+                    uncertainCategory: { type: Type.BOOLEAN },
+                    uncertaintyPrompt: { type: Type.STRING },
+                    suggestedCategories: {
+                      type: Type.ARRAY,
+                      items: { type: Type.STRING },
+                    },
+                  },
+                  required: [
+                    'date',
+                    'merchant',
+                    'amount',
+                    'paymentMethod',
+                    'category',
+                    'status',
+                    'transactionType',
+                    'source',
+                    'uncertainCategory',
+                  ],
+                },
+              },
+              summaryNote: { type: Type.STRING },
+            },
+            required: ['extractedTransactions', 'summaryNote'],
+          },
+        },
+      });
+
+      const parsed = JSON.parse((response.text ?? '{}').trim());
+
+      // Clear processed Apple Pay alerts & archive processed local inbox files
+      if (queue.length > 0) {
+        writeApplePayQueue([]);
+      }
+      for (const fileName of processedFilesToMove) {
+        const src = path.join(INBOX_DIR, fileName);
+        const dest = path.join(PROCESSED_INBOX_DIR, `${Date.now()}-${fileName}`);
+        if (fs.existsSync(src)) {
+          fs.renameSync(src, dest);
+        }
+      }
+
+      return res.json({
+        pulledCount: (parsed.extractedTransactions || []).length,
+        extractedTransactions: parsed.extractedTransactions || [],
+        summaryNote: parsed.summaryNote || 'Automated pull completed.',
+        sourcesProcessed: queue.length + processedFilesToMove.length,
+      });
+    } catch (error: any) {
+      console.error('Error in /api/auto-pull/sync:', error);
+      return res.status(500).json({
+        error: error?.message || 'Failed to process automated pull.',
+      });
+    }
+  });
 
   // Endpoint 0: Automated Merchant Favicon / Company Logo Fetcher with In-Memory Cache
   app.get('/api/merchant-logo', async (req, res) => {
@@ -407,7 +785,9 @@ ${userQuestion ? `User specific question: "${userQuestion}"` : 'Provide a compre
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
+        allowedHosts: true,
         hmr: false,
+        ws: false,
         watch: null,
       },
       appType: 'spa',

@@ -1,19 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   Download,
-  FileSpreadsheet,
   Layers,
-  Mail,
   Moon,
   Plus,
+  RotateCcw,
   ShieldCheck,
-  Smartphone,
   Sun,
-  Wallet,
 } from 'lucide-react';
 import {
-  CONNECTED_SOURCES,
   INITIAL_CATEGORY_BUDGETS,
   INITIAL_INSIGHTS,
   INITIAL_SAVINGS_GOALS,
@@ -40,8 +36,31 @@ import { CategoryBudgetDistribution } from './components/CategoryBudgetDistribut
 import { SubscriptionAlertsPanel } from './components/SubscriptionAlertsPanel';
 import { SavingsGoalsSection } from './components/SavingsGoalsSection';
 import { QuickAddFloatingMenu } from './components/QuickAddFloatingMenu';
+import { OfflineBanner } from './components/OfflineBanner';
+import {
+  WindowsVaultAndSyncPanel,
+  WindowsVaultPayload,
+} from './components/WindowsVaultAndSyncPanel';
 
 type ActiveTab = 'overview' | 'transactions' | 'reports' | 'subscriptions' | 'insights';
+
+const STORAGE_KEYS = {
+  transactions: 'ledgerpulse_v1_transactions',
+  subscriptions: 'ledgerpulse_v1_subscriptions',
+  budgets: 'ledgerpulse_v1_budgets',
+  goals: 'ledgerpulse_v1_goals',
+} as const;
+
+function loadPersistedState<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return parsed ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
@@ -55,37 +74,183 @@ export default function App() {
       return false;
     }
   });
-  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
-  const [subscriptions, setSubscriptions] = useState<SubscriptionItem[]>(INITIAL_SUBSCRIPTIONS);
-  const [categoryBudgets, setCategoryBudgets] =
-    useState<Record<SpendingCategory, number>>(INITIAL_CATEGORY_BUDGETS);
-  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>(INITIAL_SAVINGS_GOALS);
+
+  // Local-first Windows ledger state hydrated from local PC disk vault & localStorage
+  const [transactions, setTransactions] = useState<Transaction[]>(() =>
+    loadPersistedState(STORAGE_KEYS.transactions, INITIAL_TRANSACTIONS)
+  );
+  const [subscriptions, setSubscriptions] = useState<SubscriptionItem[]>(() =>
+    loadPersistedState(STORAGE_KEYS.subscriptions, INITIAL_SUBSCRIPTIONS)
+  );
+  const [categoryBudgets, setCategoryBudgets] = useState<Record<SpendingCategory, number>>(() =>
+    loadPersistedState(STORAGE_KEYS.budgets, INITIAL_CATEGORY_BUDGETS)
+  );
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>(() =>
+    loadPersistedState(STORAGE_KEYS.goals, INITIAL_SAVINGS_GOALS)
+  );
+
   const [isIngestModalOpen, setIsIngestModalOpen] = useState(false);
   const [toastBanner, setToastBanner] = useState<string | null>(null);
 
+  // Local Windows Server Disk Vault Metadata (data/local-ledger-vault.json)
+  const [diskMeta, setDiskMeta] = useState<{
+    vaultFilePath: string;
+    inboxDirPath: string;
+    fileSizeBytes: number | null;
+    lastSavedAt: string | null;
+    isSavingDisk: boolean;
+  }>({
+    vaultFilePath: 'data/local-ledger-vault.json',
+    inboxDirPath: 'data/inbox/',
+    fileSizeBytes: null,
+    lastSavedAt: null,
+    isSavingDisk: false,
+  });
+  const initialDiskHydratedRef = useRef(false);
+
+  const showToast = useCallback((msg: string) => {
+    setToastBanner(msg);
+    setTimeout(() => {
+      setToastBanner((prev) => (prev === msg ? null : prev));
+    }, 4500);
+  }, []);
+
+  // Sync Dark Mode class & desktop window theme-color meta tag
   useEffect(() => {
     const root = document.documentElement;
+    const themeMeta = document.getElementById('meta-theme-color');
     if (isDarkMode) {
       root.classList.add('dark');
+      themeMeta?.setAttribute('content', '#020617');
     } else {
       root.classList.remove('dark');
+      themeMeta?.setAttribute('content', '#f8fafc');
     }
     try {
       localStorage.setItem('ledgerpulse_theme', isDarkMode ? 'dark' : 'light');
-    } catch {
-      // Ignore storage errors in restricted contexts
-    }
+    } catch {}
   }, [isDarkMode]);
+
+  // Hydrate from Local Windows Disk Vault (/api/local-vault) on launch
+  useEffect(() => {
+    let cancelled = false;
+    const loadFromDisk = async () => {
+      try {
+        const res = await fetch('/api/local-vault');
+        if (!res.ok) {
+          initialDiskHydratedRef.current = true;
+          return;
+        }
+        const data = await res.json();
+        if (cancelled) return;
+
+        if (data.exists && data.vault && Array.isArray(data.vault.transactions)) {
+          setTransactions(data.vault.transactions);
+          if (Array.isArray(data.vault.subscriptions)) {
+            setSubscriptions(data.vault.subscriptions);
+          }
+          if (data.vault.categoryBudgets && typeof data.vault.categoryBudgets === 'object') {
+            setCategoryBudgets(data.vault.categoryBudgets);
+          }
+          if (Array.isArray(data.vault.savingsGoals)) {
+            setSavingsGoals(data.vault.savingsGoals);
+          }
+          setDiskMeta({
+            vaultFilePath: data.vaultFilePath || 'data/local-ledger-vault.json',
+            inboxDirPath: data.inboxDirPath || 'data/inbox/',
+            fileSizeBytes: data.fileSizeBytes ?? null,
+            lastSavedAt: data.updatedAt ?? null,
+            isSavingDisk: false,
+          });
+        } else {
+          setDiskMeta((prev) => ({
+            ...prev,
+            vaultFilePath: data.vaultFilePath || prev.vaultFilePath,
+            inboxDirPath: data.inboxDirPath || prev.inboxDirPath,
+          }));
+        }
+      } catch {
+        // Offline launch: relies on localStorage + linked FileSystemFileHandle
+      } finally {
+        if (!cancelled) {
+          initialDiskHydratedRef.current = true;
+        }
+      }
+    };
+    loadFromDisk();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Persist every mutation to both localStorage AND local PC disk vault (data/local-ledger-vault.json)
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.transactions, JSON.stringify(transactions));
+      localStorage.setItem(STORAGE_KEYS.subscriptions, JSON.stringify(subscriptions));
+      localStorage.setItem(STORAGE_KEYS.budgets, JSON.stringify(categoryBudgets));
+      localStorage.setItem(STORAGE_KEYS.goals, JSON.stringify(savingsGoals));
+    } catch {}
+
+    if (!initialDiskHydratedRef.current) return;
+
+    const timer = window.setTimeout(async () => {
+      setDiskMeta((prev) => ({ ...prev, isSavingDisk: true }));
+      try {
+        const res = await fetch('/api/local-vault', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            version: '1.0',
+            app: 'LedgerPulse Windows Local Vault',
+            transactions,
+            subscriptions,
+            categoryBudgets,
+            savingsGoals,
+          }),
+        });
+        if (res.ok) {
+          const saved = await res.json();
+          setDiskMeta((prev) => ({
+            ...prev,
+            vaultFilePath: saved.vaultFilePath || prev.vaultFilePath,
+            inboxDirPath: saved.inboxDirPath || prev.inboxDirPath,
+            fileSizeBytes: saved.fileSizeBytes ?? prev.fileSizeBytes,
+            lastSavedAt: saved.updatedAt ?? new Date().toISOString(),
+            isSavingDisk: false,
+          }));
+        } else {
+          setDiskMeta((prev) => ({ ...prev, isSavingDisk: false }));
+        }
+      } catch {
+        setDiskMeta((prev) => ({ ...prev, isSavingDisk: false }));
+      }
+    }, 220);
+
+    return () => window.clearTimeout(timer);
+  }, [transactions, subscriptions, categoryBudgets, savingsGoals]);
 
   const handleToggleDarkMode = () => {
     setIsDarkMode((prev) => !prev);
   };
 
-  const showToast = (msg: string) => {
-    setToastBanner(msg);
-    setTimeout(() => {
-      setToastBanner((prev) => (prev === msg ? null : prev));
-    }, 4500);
+  const handleHydrateFromVaultFile = useCallback(
+    (loaded: Partial<WindowsVaultPayload>, sourceLabel: string) => {
+      if (Array.isArray(loaded.transactions)) setTransactions(loaded.transactions);
+      if (Array.isArray(loaded.subscriptions)) setSubscriptions(loaded.subscriptions);
+      if (loaded.categoryBudgets) setCategoryBudgets(loaded.categoryBudgets);
+      if (Array.isArray(loaded.savingsGoals)) setSavingsGoals(loaded.savingsGoals);
+      showToast(`Loaded local Windows vault "${sourceLabel}" (${loaded.transactions?.length || 0} transactions).`);
+    },
+    [showToast]
+  );
+
+  const handleResetDemoData = () => {
+    setTransactions(INITIAL_TRANSACTIONS);
+    setSubscriptions(INITIAL_SUBSCRIPTIONS);
+    setCategoryBudgets(INITIAL_CATEGORY_BUDGETS);
+    setSavingsGoals(INITIAL_SAVINGS_GOALS);
+    showToast('Restored canonical November 2026 sample ledger to local Windows vault.');
   };
 
   const { summary, categoryBreakdown, topMerchants } = useMemo(
@@ -93,7 +258,18 @@ export default function App() {
     [transactions, subscriptions]
   );
 
-  // Handlers for updating category, status, resolving uncertain items, and deduplicating
+  const vaultPayload: WindowsVaultPayload = useMemo(
+    () => ({
+      version: '1.0',
+      app: 'LedgerPulse Windows Local Vault',
+      transactions,
+      subscriptions,
+      categoryBudgets,
+      savingsGoals,
+    }),
+    [transactions, subscriptions, categoryBudgets, savingsGoals]
+  );
+
   const handleUpdateCategory = (id: string, category: SpendingCategory) => {
     setTransactions((prev) =>
       prev.map((tx) =>
@@ -254,52 +430,61 @@ export default function App() {
     showToast('Saved monthly category budget limits.');
   };
 
-  const handleCommitTransactions = (
-    newItems: Transaction[],
-    mergedUpdates: Array<{ existingId: string; newSource: DataSource; rawDescriptor: string }>
-  ) => {
-    setTransactions((prev) => {
-      let updated = [...prev];
+  const handleCommitTransactions = useCallback(
+    (
+      newItems: Transaction[],
+      mergedUpdates: Array<{ existingId: string; newSource: DataSource; rawDescriptor: string }>,
+      customToast?: string
+    ) => {
+      setTransactions((prev) => {
+        let updated = [...prev];
 
-      mergedUpdates.forEach((m) => {
-        updated = updated.map((tx) => {
-          if (tx.id !== m.existingId) return tx;
-          const nextSources = [
-            ...(tx.mergedSources || []),
-            {
-              source: m.newSource,
-              referenceId: `SYNC-${Date.now().toString().slice(-4)}`,
-              capturedAt: '2026-11-17 10:03',
-              rawDescriptor: m.rawDescriptor,
-              statusAtCapture: tx.status,
-            },
-          ];
-          return {
-            ...tx,
-            isDeduplicated: true,
-            mergedSources: nextSources,
-          };
+        mergedUpdates.forEach((m) => {
+          updated = updated.map((tx) => {
+            if (tx.id !== m.existingId) return tx;
+            const nextSources = [
+              ...(tx.mergedSources || []),
+              {
+                source: m.newSource,
+                referenceId: `SYNC-${Date.now().toString().slice(-4)}`,
+                capturedAt: '2026-11-17 10:03',
+                rawDescriptor: m.rawDescriptor,
+                statusAtCapture: tx.status,
+              },
+            ];
+            return {
+              ...tx,
+              isDeduplicated: true,
+              mergedSources: nextSources,
+            };
+          });
         });
+
+        return [...newItems, ...updated];
       });
 
-      return [...newItems, ...updated];
-    });
+      if (customToast) {
+        showToast(customToast);
+        return;
+      }
 
-    const msgParts: string[] = [];
-    if (newItems.length === 1 && mergedUpdates.length === 0) {
-      const item = newItems[0];
-      const kind = item.transactionType === 'income' ? 'one-off income' : 'transaction';
-      msgParts.push(
-        `Routed ${kind} "${item.merchant}" (${formatCurrency(item.amount)}) to Unified Ledger & updated monthly totals`
-      );
-    } else if (newItems.length > 0) {
-      msgParts.push(`${newItems.length} new record(s) added`);
-    }
-    if (mergedUpdates.length > 0) {
-      msgParts.push(`${mergedUpdates.length} cross-source duplicate(s) merged without double-counting`);
-    }
-    showToast(msgParts.join(' · ') || 'Ledger updated.');
-  };
+      const msgParts: string[] = [];
+      if (newItems.length === 1 && mergedUpdates.length === 0) {
+        const item = newItems[0];
+        const kind = item.transactionType === 'income' ? 'one-off income' : 'transaction';
+        msgParts.push(
+          `Saved ${kind} "${item.merchant}" (${formatCurrency(item.amount)}) to Windows Local Vault`
+        );
+      } else if (newItems.length > 0) {
+        msgParts.push(`${newItems.length} new record(s) saved locally`);
+      }
+      if (mergedUpdates.length > 0) {
+        msgParts.push(`${mergedUpdates.length} cross-source duplicate(s) merged without double-counting`);
+      }
+      showToast(msgParts.join(' · ') || 'Local Windows vault updated.');
+    },
+    [showToast]
+  );
 
   const handleExportCsv = () => {
     const headers = [
@@ -344,8 +529,8 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-150">
-      {/* Strict 3-Zone Top Bar Contract */}
-      <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 px-6 py-3.5 flex items-center justify-between gap-8">
+      {/* STRICT 3-ZONE WINDOWS DESKTOP TOP BAR */}
+      <header className="flex sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 px-6 py-3.5 items-center justify-between gap-8">
         {/* Zone 1: Single text element wordmark */}
         <a
           href="#overview"
@@ -400,7 +585,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content Container (1440px desktop baseline) */}
+      {/* Main Windows Workbench Content Container (1400px Baseline) */}
       <main className="flex-1 max-w-[1400px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
         {/* Feedback Toast */}
         {toastBanner && (
@@ -412,29 +597,29 @@ export default function App() {
             <button
               type="button"
               onClick={() => setToastBanner(null)}
-              className="text-slate-300 dark:text-slate-400 hover:text-white dark:hover:text-slate-100 ml-4 underline"
+              className="text-slate-300 dark:text-slate-400 hover:text-white dark:hover:text-slate-100 ml-4 underline shrink-0"
             >
               Dismiss
             </button>
           </div>
         )}
 
-        {/* Workspace Context, Dark Mode Switch & Connected Sources Bar */}
+        {/* Windows Local-First Workspace Header, Local PC Vault & Automated Pull Controls */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 space-y-4">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5">
             <div>
               <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">
-                Personal AI Finance & Spending Tracker
+                LedgerPulse for Windows — Local-First Finance Workbench
               </h1>
               <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                Monitoring Gmail receipts, Bank & Credit Card statements, Apple Pay notifications, and uploaded CSVs ·{' '}
+                100% local PC disk storage (`Ctrl+S` vault sync) · Automated Apple Pay notification & local receipt inbox ingestion ·{' '}
                 <span className="font-mono text-slate-800 dark:text-slate-200">
                   Nov 1 – Nov 17, 2026
                 </span>
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={handleToggleDarkMode}
@@ -461,7 +646,7 @@ export default function App() {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Export Reconciled CSV</span>
+                <span>Export CSV</span>
               </button>
 
               <button
@@ -470,50 +655,21 @@ export default function App() {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800/80 border border-transparent dark:border-slate-700/80 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0"
               >
                 <Layers className="w-3.5 h-3.5" />
-                <span>Test Cross-Source Deduplication</span>
+                <span>Import Receipt / Statement</span>
               </button>
             </div>
           </div>
 
-          {/* 4 Connected Sources Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-            {CONNECTED_SOURCES.map((src) => {
-              const Icon =
-                src.sourceType === 'Gmail'
-                  ? Mail
-                  : src.sourceType === 'Apple Pay'
-                  ? Smartphone
-                  : src.sourceType === 'Bank Statement'
-                  ? Wallet
-                  : FileSpreadsheet;
-
-              return (
-                <div
-                  key={src.id}
-                  className="p-3 bg-slate-50/70 dark:bg-slate-800/50 border border-slate-200/80 dark:border-slate-700/80 rounded-lg flex items-start gap-3"
-                >
-                  <Icon className="w-4 h-4 text-slate-600 dark:text-slate-300 shrink-0 mt-0.5" />
-                  <div className="min-w-0 flex-1 text-xs">
-                    <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
-                      {src.name}
-                    </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                      {src.accountDetail}
-                    </div>
-                    <div className="text-[11px] font-mono text-slate-600 dark:text-slate-300 mt-1.5">
-                      {src.recordsScanned} scanned ·{' '}
-                      <span className="text-emerald-700 dark:text-emerald-400">
-                        {src.duplicatesMerged} merged
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <WindowsVaultAndSyncPanel
+            vaultPayload={vaultPayload}
+            diskMeta={diskMeta}
+            onHydrateVault={handleHydrateFromVaultFile}
+            onCommitPulledTransactions={handleCommitTransactions}
+            onShowToast={showToast}
+          />
         </div>
 
-        {/* Always-Visible 8-KPI Running Spending Summary on Overview */}
+        {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <>
             <RunningSummaryGrid
@@ -521,14 +677,12 @@ export default function App() {
               onNavigateTab={(tab) => setActiveTab(tab)}
             />
 
-            {/* Uncertain Categorization & Anomaly Clarification Queue */}
             <UncertainQueuePanel
               transactions={transactions}
               onResolveCategory={handleUpdateCategory}
               onDismissAnomaly={handleDismissAnomaly}
             />
 
-            {/* Automated Subscription Price Increase & >3-Month Inactivity Watchdog */}
             <SubscriptionAlertsPanel
               subscriptions={subscriptions}
               savingsGoals={savingsGoals}
@@ -537,9 +691,7 @@ export default function App() {
               onSimulateNewPriceHike={handleSimulateNewPriceHike}
             />
 
-            {/* 2-Column Overview Split: Category Distribution & Budgets + Subscriptions & Insights Preview */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-              {/* Left Column: Category Distribution & Monthly Budgets (7 cols) */}
               <div className="lg:col-span-7 flex flex-col">
                 <CategoryBudgetDistribution
                   categoryBreakdown={categoryBreakdown}
@@ -550,10 +702,8 @@ export default function App() {
                 />
               </div>
 
-              {/* Right Column: Key Insights & Forgotten Subscriptions Watch (5 cols) */}
               <div className="lg:col-span-5 flex flex-col gap-6">
-                {/* Key Insights Card */}
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex-1 flex flex-col justify-between">
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl md:rounded-xl p-5 sm:p-6 flex-1 flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-3">
                       <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
@@ -600,7 +750,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Strict Rules Compliance Footer */}
                   <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                     <ShieldCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                     <span>
@@ -611,7 +760,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Personal Savings Goals & Cash Allocation Section */}
             <SavingsGoalsSection
               savingsGoals={savingsGoals}
               netCashFlowThisMonth={summary.netCashFlow}
@@ -620,7 +768,6 @@ export default function App() {
               onCreateGoal={handleCreateGoal}
             />
 
-            {/* Full Unified Transaction Ledger Table on Overview */}
             <TransactionLedgerTable
               transactions={transactions}
               onUpdateCategory={handleUpdateCategory}
@@ -645,7 +792,7 @@ export default function App() {
           </div>
         )}
 
-        {/* REPORTS TAB (Daily, Weekly, Monthly) */}
+        {/* REPORTS TAB */}
         {activeTab === 'reports' && (
           <FinancialReportsSection
             transactions={transactions}
@@ -682,11 +829,11 @@ export default function App() {
         )}
       </main>
 
-      {/* Clean Quiet Footer */}
+      {/* Clean Quiet Windows Desktop Footer */}
       <footer className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-6 py-4 mt-12">
         <div className="max-w-[1400px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 dark:text-slate-400">
           <div>
-            LedgerPulse Personal Finance & Spending Tracker · Read-Only Multi-Source Reconciliation
+            LedgerPulse for Windows · Local-First Disk Vault (`data/local-ledger-vault.json`)
           </div>
           <div className="flex items-center gap-4">
             <button
@@ -699,10 +846,11 @@ export default function App() {
             <span aria-hidden="true">·</span>
             <button
               type="button"
-              onClick={() => setIsIngestModalOpen(true)}
-              className="hover:text-slate-900 dark:hover:text-slate-100 transition-colors"
+              onClick={handleResetDemoData}
+              className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100 transition-colors"
             >
-              Ingest Receipt or Statement
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset Demo Data</span>
             </button>
             <span aria-hidden="true">·</span>
             <button
@@ -716,7 +864,7 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Multi-Source Ingestion & AI Deduplication Modal */}
+      {/* Desktop Modal for Receipt OCR & Statement Ingestion */}
       <IngestSourceModal
         isOpen={isIngestModalOpen}
         onClose={() => setIsIngestModalOpen(false)}
@@ -724,12 +872,15 @@ export default function App() {
         onCommitTransactions={handleCommitTransactions}
       />
 
-      {/* Quick Add Floating Action Menu (Cash Transactions & One-Off Income) */}
+      {/* Quick Add Floating Action Menu */}
       <QuickAddFloatingMenu
         existingTransactions={transactions}
         onQuickCommitTransaction={handleCommitTransactions}
         onOpenFullIngestModal={() => setIsIngestModalOpen(true)}
       />
+
+      {/* Offline Connectivity Notice */}
+      <OfflineBanner />
     </div>
   );
 }

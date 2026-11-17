@@ -1,6 +1,6 @@
 {
   "name": "LedgerPulse Personal Finance Tracker",
-  "description": "Personal AI finance and spending tracker that consolidates, deduplicates, and categorizes transactions across Gmail, Apple Pay, and bank statements with daily, weekly, and monthly reporting.",
+  "description": "Local-first Windows personal AI finance and spending tracker with local disk storage and automated notification & receipt ingestion.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

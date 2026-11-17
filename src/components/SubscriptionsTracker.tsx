@@ -64,7 +64,7 @@ export const SubscriptionsTracker: React.FC<SubscriptionsTrackerProps> = ({
       />
 
       {/* Summary Header */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-800">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl md:rounded-xl grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-slate-800">
         <div className="p-5">
           <div className="text-xs text-slate-500 dark:text-slate-400">
             Recurring Subscriptions & Bills (Excl. Rent)
@@ -105,9 +105,9 @@ export const SubscriptionsTracker: React.FC<SubscriptionsTrackerProps> = ({
         </div>
       </div>
 
-      {/* Subscriptions Table */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
-        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Subscriptions Container */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl md:rounded-xl overflow-hidden">
+        <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
               Recurring Payments, Memberships & Bills
@@ -117,22 +117,22 @@ export const SubscriptionsTracker: React.FC<SubscriptionsTrackerProps> = ({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/90 rounded-lg">
+          <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/90 rounded-xl md:rounded-lg overflow-x-auto max-w-full">
             {(
               [
-                { id: 'All', label: 'All Recurring' },
+                { id: 'All', label: 'All' },
                 { id: 'Monthly subscription', label: 'Monthly' },
                 { id: 'Annual subscription', label: 'Annual' },
                 { id: 'Membership', label: 'Memberships' },
                 { id: 'Recurring bill', label: 'Bills & Rent' },
-                { id: 'Review', label: 'Alerts & Review' },
+                { id: 'Review', label: 'Alerts' },
               ] as const
             ).map((btn) => (
               <button
                 key={btn.id}
                 type="button"
                 onClick={() => setFilterFreq(btn.id)}
-                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                className={`min-h-[36px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 text-xs font-medium rounded-lg md:rounded-md transition-colors whitespace-nowrap shrink-0 ${
                   filterFreq === btn.id
                     ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
@@ -144,7 +144,99 @@ export const SubscriptionsTracker: React.FC<SubscriptionsTrackerProps> = ({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* MOBILE iOS TOUCH CARDS (< 768px) */}
+        <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+          {filteredSubs.map((sub) => {
+            const isPriceHike =
+              sub.previousAmount !== undefined && sub.amount > sub.previousAmount;
+            const isInactiveOver3Mo = (sub.inactiveMonths ?? 0) > 3;
+
+            return (
+              <div
+                key={`mob-sub-${sub.id}`}
+                className={`p-4 space-y-2.5 ${sub.status === 'Canceled' ? 'opacity-55' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <MerchantLogo
+                      merchant={sub.merchant}
+                      paymentMethod={sub.paymentMethod}
+                      size="md"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                        {sub.merchant}
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                        {sub.frequency} · {sub.billingDayOrDate}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <div className="text-sm font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+                      {formatCurrency(sub.amount)}
+                    </div>
+                    <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                      {formatCurrency(sub.estimatedAnnualCost)}/yr
+                    </div>
+                  </div>
+                </div>
+
+                {(isInactiveOver3Mo || isPriceHike) && (
+                  <div className="text-[11px] space-y-1">
+                    {isInactiveOver3Mo && (
+                      <div className="inline-flex items-center gap-1 text-rose-700 dark:text-rose-400 font-medium">
+                        <Clock className="w-3.5 h-3.5 shrink-0" />
+                        <span>Inactive {sub.inactiveMonths?.toFixed(1)} mos (&gt;3 mo limit)</span>
+                      </div>
+                    )}
+                    {isPriceHike && (
+                      <div className="flex items-center gap-1 text-amber-700 dark:text-amber-400 font-medium">
+                        <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+                        <span>
+                          Increased +{formatCurrency(sub.amount - (sub.previousAmount || 0))}/mo (was{' '}
+                          {formatCurrency(sub.previousAmount || 0)})
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-2 pt-1 text-xs">
+                  <span
+                    className={`font-medium ${
+                      sub.status === 'Active'
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : sub.status === 'Canceled'
+                        ? 'text-slate-400 dark:text-slate-500 line-through'
+                        : sub.status === 'Unused / Review'
+                        ? 'text-rose-700 dark:text-rose-400'
+                        : 'text-amber-700 dark:text-amber-400'
+                    }`}
+                  >
+                    {sub.status} · {sub.paymentMethod}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => onToggleCancelSubscription(sub.id)}
+                    className="min-h-[38px] px-3 py-1.5 text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl transition-colors shrink-0"
+                  >
+                    {sub.status === 'Unused / Review'
+                      ? 'Mark Kept'
+                      : sub.status === 'Canceled'
+                      ? 'Reactivate'
+                      : 'Flag Unused'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* DESKTOP ANALYTICAL SUBSCRIPTIONS TABLE (>= 768px) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 text-slate-500 dark:text-slate-400 font-medium">
@@ -261,4 +353,3 @@ export const SubscriptionsTracker: React.FC<SubscriptionsTrackerProps> = ({
     </section>
   );
 };
-

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   Calendar,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   CreditCard,
   Layers,
@@ -56,7 +57,6 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
   >('all');
   const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
 
-  // Extract distinct payment methods dynamically from transactions
   const availablePaymentMethods = useMemo(() => {
     const methods = Array.from(new Set(transactions.map((t) => t.paymentMethod))).sort();
     return methods;
@@ -83,7 +83,6 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter((tx) => {
-      // 1. Date Range Filter
       if (selectedDateRange === 'nov_all') {
         if (tx.monthKey !== '2026-11') return false;
       } else if (selectedDateRange === 'today') {
@@ -101,12 +100,10 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
         if (customEndDate && tx.date > customEndDate) return false;
       }
 
-      // 2. Category Filter
       if (selectedCategory !== 'All' && tx.category !== selectedCategory) {
         return false;
       }
 
-      // 3. Payment Method Filter
       if (selectedPaymentMethod !== 'All') {
         if (selectedPaymentMethod === 'GROUP_APPLE_PAY') {
           if (!tx.paymentMethod.toLowerCase().includes('apple pay')) return false;
@@ -121,14 +118,12 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
         }
       }
 
-      // 4. Source Filter
       if (selectedSource !== 'All') {
         const matchesPrimary = tx.source === selectedSource;
         const matchesMerged = tx.mergedSources?.some((m) => m.source === selectedSource);
         if (!matchesPrimary && !matchesMerged) return false;
       }
 
-      // 5. Record Type / Status Segment Filter
       if (selectedTypeFilter === 'deduplicated' && (!tx.mergedSources || tx.mergedSources.length < 2)) {
         return false;
       } else if (selectedTypeFilter === 'uncertain' && !tx.uncertainCategory) {
@@ -142,7 +137,6 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
         return false;
       }
 
-      // 6. Search Query (Merchant, Raw Descriptor, Category, Payment Method, Date, Amount)
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
         const inMerchant = tx.merchant.toLowerCase().includes(q);
@@ -181,7 +175,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
   }, [filteredTransactions]);
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl md:rounded-xl overflow-hidden">
       {/* Filter & Search Toolbar */}
       <div className="p-4 sm:px-6 border-b border-slate-200 dark:border-slate-800 space-y-3.5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -198,7 +192,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
             <button
               type="button"
               onClick={handleResetFilters}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors self-start lg:self-auto whitespace-nowrap shrink-0"
+              className="min-h-[40px] md:min-h-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl md:rounded-lg transition-colors self-start lg:self-auto whitespace-nowrap shrink-0"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               <span>Reset All Filters</span>
@@ -206,39 +200,39 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
           )}
         </div>
 
-        {/* Search Input + Dropdown Filters Row (Date Range, Category, Payment Method, Source) */}
+        {/* Search Input + Dropdown Filters Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 items-center">
           {/* Search Input (4 cols) */}
           <div className="relative lg:col-span-4">
-            <Search className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 md:w-3.5 md:h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               aria-label="Search transactions"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search merchant, descriptor, amount ($), or card..."
-              className="w-full pl-8 pr-8 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
+              className="w-full min-h-[44px] md:min-h-0 pl-9 md:pl-8 pr-9 py-2 text-base md:text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl md:rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
             />
             {searchQuery && (
               <button
                 type="button"
                 aria-label="Clear search query"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                className="min-h-[40px] min-w-[40px] md:min-h-0 md:min-w-0 flex items-center justify-center absolute right-1.5 md:right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="w-4 h-4 md:w-3.5 md:h-3.5" />
               </button>
             )}
           </div>
 
           {/* Date Range Dropdown Filter (3 cols) */}
           <div className="relative lg:col-span-3">
-            <Calendar className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Calendar className="w-4 h-4 md:w-3.5 md:h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <select
               aria-label="Filter by date range"
               value={selectedDateRange}
               onChange={(e) => setSelectedDateRange(e.target.value as DateRangePreset)}
-              className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
+              className="w-full min-h-[44px] md:min-h-0 pl-9 md:pl-8 pr-3 py-2 text-base md:text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl md:rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
             >
               <option value="nov_all">Date: This Month (Nov 1 – Nov 17)</option>
               <option value="today">Date: Today (Nov 17, 2026)</option>
@@ -253,12 +247,12 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
 
           {/* Category Dropdown Filter (2 cols) */}
           <div className="relative lg:col-span-2">
-            <Tag className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Tag className="w-4 h-4 md:w-3.5 md:h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <select
               aria-label="Filter by spending category"
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value as 'All' | SpendingCategory)}
-              className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
+              className="w-full min-h-[44px] md:min-h-0 pl-9 md:pl-8 pr-3 py-2 text-base md:text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl md:rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
             >
               <option value="All">Category: All (16)</option>
               {ALL_SPENDING_CATEGORIES.map((cat) => (
@@ -271,12 +265,12 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
 
           {/* Payment Method Dropdown Filter (2 cols) */}
           <div className="relative lg:col-span-2">
-            <CreditCard className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <CreditCard className="w-4 h-4 md:w-3.5 md:h-3.5 text-slate-400 dark:text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <select
               aria-label="Filter by payment method"
               value={selectedPaymentMethod}
               onChange={(e) => setSelectedPaymentMethod(e.target.value)}
-              className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
+              className="w-full min-h-[44px] md:min-h-0 pl-9 md:pl-8 pr-3 py-2 text-base md:text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl md:rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
             >
               <option value="All">Payment: All Methods</option>
               <optgroup label="By Payment Network / Card">
@@ -301,7 +295,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
               aria-label="Filter by data source"
               value={selectedSource}
               onChange={(e) => setSelectedSource(e.target.value as 'All' | DataSource)}
-              className="w-full px-2.5 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
+              className="w-full min-h-[44px] md:min-h-0 px-3 md:px-2.5 py-2 text-base md:text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl md:rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
             >
               <option value="All">Source: All</option>
               <option value="Gmail">Gmail</option>
@@ -313,9 +307,9 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
           </div>
         </div>
 
-        {/* Custom Date Range Picker Row (shown when Date: Custom Range is active) */}
+        {/* Custom Date Range Picker Row */}
         {selectedDateRange === 'custom' && (
-          <div className="flex flex-wrap items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg text-xs">
+          <div className="flex flex-wrap items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl text-xs">
             <span className="font-medium text-slate-700 dark:text-slate-200">Custom Date Window:</span>
             <div className="flex items-center gap-2">
               <label htmlFor="tx-start-date" className="text-slate-500 dark:text-slate-400">
@@ -326,7 +320,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                 type="date"
                 value={customStartDate}
                 onChange={(e) => setCustomStartDate(e.target.value)}
-                className="px-2.5 py-1 font-mono bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
+                className="min-h-[40px] md:min-h-0 px-2.5 py-1 text-base md:text-xs font-mono bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
               />
             </div>
             <div className="flex items-center gap-2">
@@ -338,31 +332,31 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                 type="date"
                 value={customEndDate}
                 onChange={(e) => setCustomEndDate(e.target.value)}
-                className="px-2.5 py-1 font-mono bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
+                className="min-h-[40px] md:min-h-0 px-2.5 py-1 text-base md:text-xs font-mono bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
               />
             </div>
           </div>
         )}
 
-        {/* Interactive Type Filter Bar (Functional Segmented Buttons) */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-          <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/90 rounded-lg">
+        {/* Interactive Type Filter Bar (Horizontally scrollable on mobile, wraps cleanly on desktop) */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+          <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800/90 rounded-xl md:rounded-lg overflow-x-auto max-w-full">
             {(
               [
                 { id: 'all', label: 'All Records' },
-                { id: 'purchase', label: 'Purchases Only' },
-                { id: 'deduplicated', label: 'Cross-Source Merged' },
+                { id: 'purchase', label: 'Purchases' },
+                { id: 'deduplicated', label: 'Merged' },
                 { id: 'uncertain', label: 'Needs Review' },
                 { id: 'refund', label: 'Refunds' },
                 { id: 'income', label: 'Income' },
-                { id: 'transfer', label: 'Excluded Transfers' },
+                { id: 'transfer', label: 'Transfers' },
               ] as const
             ).map((tab) => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setSelectedTypeFilter(tab.id)}
-                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                className={`min-h-[36px] md:min-h-0 px-3 md:px-2.5 py-1.5 md:py-1 text-xs font-medium rounded-lg md:rounded-md transition-colors whitespace-nowrap shrink-0 ${
                   selectedTypeFilter === tab.id
                     ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-xs'
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
@@ -374,7 +368,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
           </div>
 
           <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-            Showing {displayedRows.length} of {filteredTransactions.length} matching · Purchases sum:{' '}
+            {displayedRows.length} of {filteredTransactions.length} records · Purchases:{' '}
             <strong className="text-slate-900 dark:text-slate-100">
               {formatCurrency(filteredPurchaseTotal)}
             </strong>
@@ -382,8 +376,198 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
         </div>
       </div>
 
-      {/* High-Density Financial Data Grid */}
-      <div className="overflow-x-auto">
+      {/* MOBILE iOS TOUCH LIST (< 768px) — Zero Horizontal Scroll */}
+      <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+        {displayedRows.length === 0 ? (
+          <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400">
+            No transactions match the current filter criteria.{' '}
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="text-slate-900 dark:text-slate-100 font-medium underline underline-offset-4 ml-1"
+            >
+              Reset filters
+            </button>
+          </div>
+        ) : (
+          displayedRows.map((tx) => {
+            const isExpanded = expandedTxId === tx.id;
+            const sourceCount = tx.mergedSources?.length || 1;
+            const categoryLabel =
+              tx.transactionType === 'income'
+                ? 'Income / Payroll'
+                : tx.transactionType === 'transfer'
+                ? 'Internal Transfer'
+                : tx.category;
+
+            return (
+              <div
+                key={`mobile-${tx.id}`}
+                className={
+                  tx.uncertainCategory ? 'bg-amber-50/40 dark:bg-amber-950/20' : ''
+                }
+              >
+                <button
+                  type="button"
+                  onClick={() => setExpandedTxId(isExpanded ? null : tx.id)}
+                  className="w-full min-h-[68px] px-4 py-3 flex items-center justify-between gap-3 text-left active:bg-slate-100/80 dark:active:bg-slate-800/60 transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <MerchantLogo
+                      merchant={tx.merchant}
+                      rawDescription={tx.rawDescription}
+                      transactionType={tx.transactionType}
+                      paymentMethod={tx.paymentMethod}
+                      size="md"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                        {tx.merchant}
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                        <span className="font-mono">{tx.date.slice(5)}</span>
+                        <span aria-hidden="true"> · </span>
+                        <span
+                          className={
+                            tx.uncertainCategory
+                              ? 'text-amber-700 dark:text-amber-400 font-medium'
+                              : ''
+                          }
+                        >
+                          {categoryLabel}
+                        </span>
+                        {sourceCount > 1 && (
+                          <>
+                            <span aria-hidden="true"> · </span>
+                            <span className="text-emerald-700 dark:text-emerald-400 font-mono">
+                              {sourceCount}x merged
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="text-right">
+                      <div className="text-sm font-mono tabular-nums font-semibold">
+                        {tx.transactionType === 'refund' ? (
+                          <span className="text-emerald-700 dark:text-emerald-400">
+                            -{formatCurrency(tx.amount)}
+                          </span>
+                        ) : tx.transactionType === 'income' ? (
+                          <span className="text-emerald-700 dark:text-emerald-400">
+                            +{formatCurrency(tx.amount)}
+                          </span>
+                        ) : tx.transactionType === 'transfer' ? (
+                          <span className="text-slate-400 dark:text-slate-500 line-through">
+                            {formatCurrency(tx.amount)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-900 dark:text-slate-100">
+                            {formatCurrency(tx.amount)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10px] capitalize text-slate-400 dark:text-slate-500">
+                        {tx.status}
+                      </div>
+                    </div>
+                    <ChevronRight
+                      className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform ${
+                        isExpanded ? 'rotate-90' : ''
+                      }`}
+                    />
+                  </div>
+                </button>
+
+                {/* Mobile Inline Category, Status & Provenance Drawer */}
+                {isExpanded && (
+                  <div className="px-4 pb-4 pt-1 bg-slate-50/90 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 space-y-3 text-xs">
+                    <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 break-all">
+                      {tx.rawDescription} · {tx.paymentMethod}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      {tx.transactionType !== 'income' && tx.transactionType !== 'transfer' && (
+                        <div>
+                          <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+                            Category
+                          </label>
+                          <select
+                            aria-label={`Category for ${tx.merchant}`}
+                            value={tx.category}
+                            onChange={(e) =>
+                              onUpdateCategory(tx.id, e.target.value as SpendingCategory)
+                            }
+                            className="w-full min-h-[42px] px-2.5 py-1.5 text-base bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100"
+                          >
+                            {ALL_SPENDING_CATEGORIES.map((cat) => (
+                              <option key={cat} value={cat}>
+                                {cat}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
+                      <div
+                        className={
+                          tx.transactionType === 'income' || tx.transactionType === 'transfer'
+                            ? 'col-span-2'
+                            : ''
+                        }
+                      >
+                        <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+                          Status
+                        </label>
+                        <select
+                          aria-label={`Status for ${tx.merchant}`}
+                          value={tx.status}
+                          onChange={(e) =>
+                            onUpdateStatus(tx.id, e.target.value as TransactionStatus)
+                          }
+                          className="w-full min-h-[42px] px-2.5 py-1.5 text-base bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100"
+                        >
+                          <option value="posted">Posted</option>
+                          <option value="pending">Pending</option>
+                          <option value="refunded">Refunded</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {tx.mergedSources && tx.mergedSources.length > 0 && (
+                      <div className="space-y-1.5 pt-1">
+                        <div className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                          Cross-Source Provenance ({tx.mergedSources.length} feed
+                          {tx.mergedSources.length === 1 ? '' : 's'} → counted once)
+                        </div>
+                        {tx.mergedSources.map((src, idx) => (
+                          <div
+                            key={`${tx.id}-mob-src-${idx}`}
+                            className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-[11px]"
+                          >
+                            <div className="flex items-center justify-between font-medium text-slate-900 dark:text-slate-100">
+                              <span>{src.source}</span>
+                              <span className="font-mono text-slate-400">{src.referenceId}</span>
+                            </div>
+                            <div className="font-mono text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                              {src.rawDescriptor}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* DESKTOP HIGH-DENSITY FINANCIAL DATA GRID (>= 768px) */}
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -426,7 +610,6 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                         tx.uncertainCategory ? 'bg-amber-50/30 dark:bg-amber-950/20' : ''
                       } ${tx.transactionType === 'transfer' ? 'opacity-75' : ''}`}
                     >
-                      {/* Date */}
                       <td className="py-3 pl-6 pr-3 font-mono tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap">
                         <div>{tx.date}</div>
                         {tx.time && (
@@ -436,7 +619,6 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                         )}
                       </td>
 
-                      {/* Merchant with Automated Favicon / Company Logo */}
                       <td className="py-3 px-3">
                         <div className="flex items-center gap-2.5">
                           <MerchantLogo
@@ -467,7 +649,6 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                         </div>
                       </td>
 
-                      {/* Category */}
                       <td className="py-3 px-3 whitespace-nowrap">
                         {tx.transactionType === 'income' ? (
                           <span className="text-emerald-700 dark:text-emerald-400 font-medium">
@@ -503,18 +684,14 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                         )}
                       </td>
 
-                      {/* Payment Method */}
                       <td className="py-3 px-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
                         {tx.paymentMethod}
                       </td>
 
-                      {/* Source & Deduplication */}
                       <td className="py-3 px-3 whitespace-nowrap">
                         <button
                           type="button"
-                          onClick={() =>
-                            setExpandedTxId(isExpanded ? null : tx.id)
-                          }
+                          onClick={() => setExpandedTxId(isExpanded ? null : tx.id)}
                           className="text-left group inline-flex items-center gap-1.5 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
                         >
                           <Layers className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 group-hover:text-slate-700 dark:group-hover:text-slate-300 shrink-0" />
@@ -532,7 +709,6 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                         </button>
                       </td>
 
-                      {/* Status */}
                       <td className="py-3 px-3 whitespace-nowrap">
                         <select
                           aria-label={`Status for ${tx.merchant}`}
@@ -569,7 +745,6 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                         </select>
                       </td>
 
-                      {/* Amount */}
                       <td className="py-3 pl-3 pr-6 text-right font-mono tabular-nums font-medium whitespace-nowrap">
                         {tx.transactionType === 'refund' ? (
                           <span className="text-emerald-700 dark:text-emerald-400">
@@ -591,7 +766,6 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                       </td>
                     </tr>
 
-                    {/* Expanded Deduplication Provenance Drawer */}
                     {isExpanded && (
                       <tr className="bg-slate-50/90 dark:bg-slate-800/50">
                         <td colSpan={7} className="px-6 py-3.5 border-l-0">

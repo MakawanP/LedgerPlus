@@ -1,6 +1,6 @@
 # LedgerPulse — Personal AI Finance & Spending Tracker
 
-**LedgerPulse** is a full-stack personal financial tracking and spending intelligence dashboard designed to consolidate, deduplicate, categorize, and audit transactions across Gmail receipts, connected bank and credit card statements, Apple Pay notifications, uploaded CSV/PDF statements, receipt photos, and manual cash logs.
+**LedgerPulse** is a local-first **Windows Desktop Application** for personal financial tracking and spending intelligence. It stores 100% of your financial ledger locally on your Windows PC and automatically pulls, deduplicates, categorizes, and audits transactions from Apple Pay / card webhook notifications, a local watched receipt & statement folder (`data/inbox/`), uploaded CSV/PDF statements, receipt images, and manual cash logs—without requiring cloud database storage or Google Cloud OAuth.
 
 ---
 
@@ -46,7 +46,17 @@
 
 ### 9. AI Spending Insights & Dual Light / Dark Theme
 - **Diagnostic Pillars & Live Audit**: Highlights top spend categories, unusual purchases, increasing MoM patterns, duplicate authorizations, forgotten subscriptions, and interactive natural-language ledger audits.
-- **Light & Dark Mode**: Persistent dual-theme interface synced with `localStorage` and OS `prefers-color-scheme` with zero initial paint flash.
+- **Light & Dark Mode**: Persistent dual-theme interface synced with `localStorage`, iOS status bar `theme-color`, and OS `prefers-color-scheme` with zero initial paint flash.
+
+### 10. Windows Desktop Application, 100% Local PC Storage & Automated Data Pull
+- **One-Click Windows Desktop Launcher**: Double-click `start-windows-app.bat` on Windows 10/11 to launch the local engine and open LedgerPulse in a dedicated chromeless desktop window (`--app` mode), or install directly to your Windows Start Menu & Taskbar.
+- **Three-Tier Local PC Storage**:
+  1. **Native Windows File System Linking (`Ctrl+S` / `Ctrl+O`)**: Link any `.json` file on your PC (e.g., `Documents\LedgerPulse\my-ledger.json`) via the File System Access API so every edit auto-writes directly to your chosen file.
+  2. **Automatic Local Disk Vault (`data/local-ledger-vault.json`)**: Every transaction, category confirmation, budget update, subscription change, and savings deposit is automatically persisted on disk by the local server (`GET` / `POST /api/local-vault`).
+  3. **Browser Local Cache**: Instantaneous offline fallback in `localStorage`.
+- **Automated Background Data Pull (Zero Cloud OAuth Required)**:
+  - **Apple Pay & Card Notification Webhook (`/api/apple-pay/webhook`)**: Receives automated transaction payloads and queues them locally in `data/apple-pay-queue.json`.
+  - **Local Watched Drop-Folder (`data/inbox/`)**: Drop `.eml` email receipts, `.csv` bank exports, `.pdf` statements, or receipt images into `data/inbox/`—background auto-pull extracts exact amounts, **auto-posts high-confidence matches** (deduplicating against existing entries), **flags uncertain items** for review, and archives processed files to `data/inbox/processed/`.
 
 ---
 
@@ -61,12 +71,17 @@
 ## Project Structure
 
 ```text
+├── start-windows-app.bat               # One-click Windows 10/11 desktop app launcher
 ├── index.html                          # App entry HTML + pre-paint theme initialization
-├── server.ts                           # Express API server + Vite middleware + logo fetcher & OCR routes
+├── server.ts                           # Express API + local disk vault + watched inbox & webhook engine
 ├── package.json                        # Scripts and dependencies
 ├── .env.example                        # Required environment variable template
+├── data/                               # Git-ignored local PC storage directory (created automatically)
+│   ├── local-ledger-vault.json         # Automatic local disk ledger database
+│   ├── apple-pay-queue.json            # Queued incoming Apple Pay / card webhook notifications
+│   └── inbox/                          # Watched folder for .eml receipts, CSVs, PDFs & images
 └── src/
-    ├── App.tsx                         # Main application workspace, state reconciliation & navigation
+    ├── App.tsx                         # Main Windows desktop workspace, local vault sync & navigation
     ├── index.css                       # Typography, Tailwind CSS v4 setup & custom dark variant
     ├── types/finance.ts                # Core TypeScript models & 16 spending categories
     ├── data/sampleFinanceData.ts       # Multi-source sample ledger, subscriptions, budgets & goals
@@ -74,6 +89,7 @@
     │   ├── financeMetrics.ts           # Net spend, MoM delta, subscription alerts & ranking calculations
     │   └── merchantLogo.ts             # Merchant brand normalization & domain inference
     └── components/
+        ├── WindowsVaultAndSyncPanel.tsx # Local PC file linking (Ctrl+S/O), Windows install & Auto-Pull bar
         ├── RunningSummaryGrid.tsx      # 8-metric executive running summary strip
         ├── UncertainQueuePanel.tsx     # Interactive category confirmation banner
         ├── SubscriptionAlertsPanel.tsx # Price increase & 3+ month inactivity alert banner
@@ -121,11 +137,13 @@ GEMINI_API_KEY="your_actual_api_key_here"
 APP_URL="http://localhost:3000"
 ```
 
-### 4. Start the Development Server
+### 4. Launch on Windows 10 / 11
+- **Option A (One-Click Windows App Window)**: Double-click **`start-windows-app.bat`** in Windows Explorer. It automatically creates `data\inbox\`, starts the local server, and opens LedgerPulse in a standalone native Windows app window.
+- **Option B (Terminal)**:
 ```bash
 npm run dev
 ```
-Open **`http://localhost:3000`** in your browser. Both the Express API routes (`/api/*`) and the React frontend are served together on port `3000`.
+Open **`http://localhost:3000`** in Microsoft Edge or Chrome (click **Install Windows App** in the top bar or the address bar install icon to pin LedgerPulse to your Windows Start Menu and Taskbar).
 
 ### 5. Typecheck & Build for Production
 ```bash
@@ -145,6 +163,13 @@ NODE_ENV=production npm run dev
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `POST` | `/api/finance/parse-source` | Multimodal Vision OCR & raw text parser for receipt images, PDFs, Gmail receipts, Apple Pay alerts, and CSV statements with duplicate matching |
+| `GET` | `/api/local-vault` | Reads the user's persisted local ledger vault (`data/local-ledger-vault.json`) from disk |
+| `POST` | `/api/local-vault` | Writes updated transactions, budgets, subscriptions, and savings goals to local PC disk |
+| `GET` | `/api/auto-pull/status` | Returns pending counts for queued Apple Pay notifications and `data/inbox/` files |
+| `POST` | `/api/auto-pull/sync` | Drains Apple Pay webhook queue + `data/inbox/` receipts/CSVs/PDFs, deduplicates, and archives processed files |
+| `POST` | `/api/apple-pay/webhook` | Local webhook endpoint for incoming Apple Pay / card transaction alerts |
+| `POST` | `/api/apple-pay/simulate` | Queues a sample Apple Pay alert locally to test end-to-end automated ingestion |
+| `POST` | `/api/local-inbox/drop-sample` | Writes a sample `.eml` receipt into `data/inbox/` to test watched-folder ingestion |
+| `POST` | `/api/finance/parse-source` | Multimodal Vision OCR & raw text parser for receipt images, PDFs, alerts, and CSV statements |
 | `POST` | `/api/finance/audit-insights` | Grounded spending audit and natural-language Q&A over verified ledger figures |
 | `GET` | `/api/merchant-logo?domain=...` | Cached merchant favicon/logo resolver with multi-provider fallback |
