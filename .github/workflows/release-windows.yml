@@ -17,6 +17,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   release-windows:
     name: Windows 10/11 Release (x64 Standalone + Portable)
@@ -34,7 +37,7 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Run TypeScript check
         run: npm run lint
@@ -47,7 +50,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          $ProgressPreference = "SilentlyContinue"
+
+          $ver = (Get-Content "package.json" -Raw | ConvertFrom-Json).version
           $dispatchTag = "${{ github.event.inputs.release_tag }}"
           $refType = "${{ github.ref_type }}"
           $refName = "${{ github.ref_name }}"
@@ -64,15 +69,19 @@ jobs:
 
           $nodeVer = $env:NODE_RUNTIME_VERSION
           $nodeZipUrl = "https://nodejs.org/dist/v$nodeVer/node-v$nodeVer-win-x64.zip"
+          $tempZipPath = Join-Path $env:RUNNER_TEMP "node-win-x64.zip"
+          $tempExtractDir = Join-Path $env:RUNNER_TEMP "node-extracted"
 
           Write-Host "Downloading official Node.js v$nodeVer Windows x64 runtime..."
-          Invoke-WebRequest -Uri $nodeZipUrl -OutFile "$RUNNER_TEMP\node-win-x64.zip"
-          Expand-Archive -Path "$RUNNER_TEMP\node-win-x64.zip" -DestinationPath "$RUNNER_TEMP\node-extracted" -Force
+          Invoke-WebRequest -Uri $nodeZipUrl -OutFile $tempZipPath -UseBasicParsing
+          Expand-Archive -Path $tempZipPath -DestinationPath $tempExtractDir -Force
 
           $standaloneStage = "release\LedgerPulse-Windows-x64-Standalone"
           Copy-Item -Path "release\LedgerPulse-Windows" -Destination $standaloneStage -Recurse -Force
           New-Item -ItemType Directory -Path "$standaloneStage\runtime" -Force | Out-Null
-          Copy-Item -Path "$RUNNER_TEMP\node-extracted\node-v$nodeVer-win-x64\node.exe" -Destination "$standaloneStage\runtime\node.exe" -Force
+
+          $extractedNodeExe = Join-Path $tempExtractDir "node-v$nodeVer-win-x64\node.exe"
+          Copy-Item -Path $extractedNodeExe -Destination "$standaloneStage\runtime\node.exe" -Force
 
           $standaloneZip = "release\LedgerPulse-Windows-x64-Standalone-$resolvedTag.zip"
           Compress-Archive -Path $standaloneStage -DestinationPath $standaloneZip -CompressionLevel Optimal -Force

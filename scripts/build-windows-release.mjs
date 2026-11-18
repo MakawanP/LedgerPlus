@@ -178,7 +178,7 @@ async function main() {
   createWindowsIcoFromPng(pngIconPath, icoPath);
 
   console.log(`[2/5] Building production client & PWA assets (vite build)...`);
-  execSync('npx vite build', { cwd: ROOT_DIR, stdio: 'inherit' });
+  execSync('npm run build', { cwd: ROOT_DIR, stdio: 'inherit' });
 
   console.log(`[3/5] Preparing clean Windows release directory...`);
   fs.rmSync(RELEASE_ROOT, { recursive: true, force: true });
