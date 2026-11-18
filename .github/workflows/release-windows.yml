@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Version tag for GitHub Release (e.g., v1.0.0)'
+        description: 'Version tag for GitHub Release (e.g., v1.0.2)'
         required: false
-        default: 'v1.0.0'
+        default: 'v1.0.2'
 
 permissions:
   contents: write
@@ -113,12 +113,13 @@ jobs:
 
             ### Which file should I download?
             - **`LedgerPulse-Windows-x64-Standalone-${{ steps.meta.outputs.release_tag }}.zip` (Recommended — Zero Prerequisites)**: Includes an embedded Windows x64 runtime (`runtime\node.exe`). Unzip anywhere and double-click **`Install-Windows-App.bat`** to add Desktop & Start Menu shortcuts and launch silently in a native desktop app window.
-            - **`LedgerPulse-Windows-v1.0.0.zip` (Lightweight Portable)**: Pre-bundled server + PWA client (~3 MB, zero `npm install` needed; uses an existing Node.js 20+ installation).
+            - **`LedgerPulse-Windows-${{ steps.meta.outputs.release_tag }}.zip` (Lightweight Portable)**: Pre-bundled server + PWA client (~3 MB, zero `npm install` needed; uses an existing Node.js 20+ installation).
 
             ### Highlights
-            - Silent zero-console desktop window launcher (`LedgerPulse.vbs`) + Desktop/Start Menu `.ico` shortcut installer (`Install-Windows-App.bat`)
-            - Real-time Phone & Windows PC Cloud Sync + In-App Gmail Receipt Scanner
-            - Streamlined 5-Tab Workspace: Overview, Transactions & Subscriptions (with Automated Subscription Watchdog), Reports, Savings Goals (editable balances + Undo delete), and Split Bills
+            - **Bank & Credit Card CSV Statement Importer (`Import CSV`)**: Instant, offline-capable `.csv` / `.tsv` importer with auto-column detection (`Date`, `Merchant`/`Description`, single `Amount` or split `Debit` + `Credit`, `Category`, `Card/Account`), sign-convention selector, inline category override, per-row selection, and cross-source duplicate reconciliation
+            - **100% Production-Clean Workspace**: Removed all demo datasets, preset sample buttons, and synthetic test generators across the application and server
+            - **Gmail OAuth (`gmail.readonly`) & Multi-Device Sync on Windows**: Automatic Cloud+Gmail desktop launch when online with local vault fallback and built-in offline parser when disconnected
+            - **Streamlined 5-Tab Workspace**: Overview, Transactions & Subscriptions (with Automated Subscription Watchdog), Reports, Savings Goals (editable balances + Undo delete), and Split Bills
           files: |
             release/*.zip
             release/SHA256SUMS.txt

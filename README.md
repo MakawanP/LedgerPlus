@@ -6,7 +6,7 @@
 
 ---
 
-## UI Demo & Screenshots
+## Interface Screenshots
 
 ### 1. Executive Overview & Category Budget Distribution
 > Clean executive 8-metric summary, split-segment category budget progress bars (green on track, amber at 80%, red split overage above 100%), and integrated spending insights.
@@ -44,10 +44,10 @@ LedgerPulse organizes every workflow in a focused 5-tab navigation order across 
 LedgerPulse ships with a zero-console Windows 10/11 desktop app packager (`npm run release:windows`) and an automated GitHub Actions release workflow:
 
 ### Option A — Download Directly from the App or GitHub Releases
-1. Click **Windows Release (.zip)** in the app's **Sync & Gmail** panel (or footer), or download `LedgerPulse-Windows-v1.0.0.zip` / `LedgerPulse-Windows-Standalone-x64.zip` from **[GitHub Releases](https://github.com/MakawanP/LedgerPulse/releases)**.
+1. Click **Windows Release (.zip)** in the app's **Sync & Gmail** panel (or footer), or download `LedgerPulse-Windows-x64-Standalone-v1.0.2.zip` / `LedgerPulse-Windows-v1.0.2.zip` from **[GitHub Releases](https://github.com/MakawanP/LedgerPulse/releases)**.
 2. Extract the `.zip` folder anywhere on your Windows 10 or Windows 11 PC (for example `C:\Apps\LedgerPulse`).
 3. Double-click **`Install-Windows-App.bat`** once to create **Desktop** and **Start Menu** shortcuts with the custom `ledgerpulse.ico` icon.
-4. Launch **LedgerPulse** from your Desktop or Start Menu (`LedgerPulse.vbs`)—starts the local vault server silently in the background with **no black Command Prompt window** and opens LedgerPulse in standalone Edge/Chrome `--app` mode. Use `Stop-LedgerPulse-Server.bat` anytime to stop the background server.
+4. Launch **LedgerPulse** from your Desktop or Start Menu (`LedgerPulse.vbs`)—starts the local vault server silently in the background with **no black Command Prompt window** and opens the pre-authorized Cloud+Gmail desktop window in Edge/Chrome `--app` mode when online (falling back automatically to `http://localhost:3000` when offline or launched with `--local`). Use `Stop-LedgerPulse-Server.bat` anytime to stop the background server.
 
 ### Option B — Build the Windows Release Package Locally
 ```bash
@@ -56,7 +56,7 @@ npm run release:windows
 Generates:
 - `public/ledgerpulse.ico` — Native Windows multi-header icon
 - `release/LedgerPulse-Windows/` — Bundled `dist/` client + standalone `server.cjs` + `LedgerPulse.vbs` + `Install-Windows-App.bat` + `Stop-LedgerPulse-Server.bat`
-- `release/LedgerPulse-Windows-v1.0.0.zip` — Distributable Windows release archive (also served at `GET /api/release/windows.zip`)
+- `release/LedgerPulse-Windows-v1.0.2.zip` — Distributable Windows release archive (also served at `GET /api/release/windows.zip`)
 
 ### Option C — Automated GitHub Releases (`.github/workflows/release-windows.yml`)
 Every push/sync to `main` (or `v*` tag / manual **Run workflow** dispatch in GitHub Actions) automatically builds on `windows-latest` and publishes to **[GitHub Releases](https://github.com/MakawanP/LedgerPulse/releases)**:
@@ -79,7 +79,7 @@ Every push/sync to `main` (or `v*` tag / manual **Run workflow** dispatch in Git
 ### 3. Real-Time Phone & Computer Sync + In-App Gmail Connection
 - **Collapsible Sync & Gmail Hub**: Sign in with Google inside the app to enable live Firestore synchronization across your phone and computer (backed by IndexedDB offline caching so edits work offline and sync automatically on reconnect).
 - **Read-Only Gmail Receipt Scanner**: Connect Gmail (`gmail.readonly`) in-app to scan recent order confirmations, ride receipts, and billing notices directly in the browser and reconcile them against your ledger without server-side credential storage.
-- **Starter Demo & Channel Presets**: Starts with a clean ledger; load the **Starter Demo** (including sample split bills, subscriptions, budgets, and goals) or individual channel import packs anytime, and delete rows or reset the ledger in one click.
+- **Bank & Card CSV Statement Importer (`Import CSV`)**: Instant, offline-capable `.csv` and `.tsv` statement parser supporting Chase, Amex, Apple Card, Bank of America, Citi, Capital One, Wells Fargo, LedgerPulse exports, and custom bank CSVs—with automatic column mapping (`Date`, `Merchant`/`Description`, single `Amount` or split `Debit` + `Credit`), sign-convention detection, inline category overrides, and cross-source duplicate reconciliation.
 
 ### 4. Split-Segment Category Budgets & 16 Standardized Categories
 - **Three-State Visual Progress Bars**:
@@ -132,8 +132,10 @@ Every push/sync to `main` (or `v*` tag / manual **Run workflow** dispatch in Git
     │   ├── FinancialReportsSection.tsx # Daily, Weekly & Monthly statements + Cash Flow Forecast
     │   ├── SavingsGoalsSection.tsx     # Editable Total Saved balances, allocations & Undo Delete
     │   ├── SplitBillsSummaryPanel.tsx  # Dedicated Split Bills & Friend Reimbursements tracker
+    │   ├── IngestSourceModal.tsx       # CSV Statement Importer, Receipt/PDF OCR & Manual Entry
     │   ├── WindowsVaultAndSyncPanel.tsx # Cloud Sync, Gmail, Apple Pay, Local Vault & Windows .zip
     │   └── MobileBottomNav.tsx         # 5-tab mobile nav (Overview / Tx & Subs / Reports / Goals / Splits)
+    ├── utils/csvImporter.ts            # RFC-4180 CSV/TSV parser, column mapper & duplicate detector
     └── services/firebaseAndGmail.ts    # Firebase Auth, real-time Firestore sync & Gmail API scanner
 ```
 
@@ -163,7 +165,7 @@ npm run release:windows
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/release/windows.zip` | Downloads the packaged Windows 10/11 desktop release (`LedgerPulse-Windows-v1.0.0.zip`) |
+| `GET` | `/api/release/windows.zip` | Downloads the packaged Windows 10/11 desktop release (`LedgerPulse-Windows-v1.0.2.zip`) |
 | `GET` | `/api/local-vault` | Reads the persisted local ledger vault (`data/local-ledger-vault.json`) from disk |
 | `POST` | `/api/local-vault` | Saves transactions, split shares, budgets, subscriptions, and goals to disk |
 | `GET` | `/api/auto-pull/status` | Returns pending counts for queued Apple Pay notifications and `data/inbox/` files |

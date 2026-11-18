@@ -55,31 +55,45 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
     );
     const novDailyDiscretionaryAvg = novDiscretionaryTotal / currentDay;
 
-    // Blend with October non-recurring daily average for historical stability
-    const octDiscretionaryAvg =
-      (summaryMetrics.previousMonthTotalSpending - 2450 - 563.36) / 31;
+    // Blend with October non-recurring daily average when October records exist
+    const octTotal = summaryMetrics.previousMonthTotalSpending;
+    const octDiscretionaryAvg = octTotal > 0 ? octTotal / 31 : 0;
     const historicalDailyDiscretionaryRate =
-      novDailyDiscretionaryAvg * 0.65 + Math.max(25, octDiscretionaryAvg) * 0.35;
+      octTotal > 0
+        ? novDailyDiscretionaryAvg * 0.65 + octDiscretionaryAvg * 0.35
+        : novDailyDiscretionaryAvg;
 
     const scenarioMultiplier =
       scenario === 'conservative' ? 0.78 : scenario === 'elevated' ? 1.25 : 1.0;
 
     const effectiveDailyDiscretionary = historicalDailyDiscretionaryRate * scenarioMultiplier;
 
-    // Identify upcoming recurring bills/subscriptions or pro-rated recurring obligations for Nov 18-30
-    // Also factor in savings if user toggles "Cancel Unused Subscriptions"
-    const unusedMonthlySavings = excludeUnusedSubs
-      ? subscriptions
-          .filter((s) => s.status === 'Unused / Review')
-          .reduce((acc, s) => acc + s.amount, 0)
-      : 0;
+    const potentialUnusedSubSavings = subscriptions
+      .filter((s) => s.status === 'Unused / Review')
+      .reduce((acc, s) => acc + s.amount, 0);
 
-    // Scheduled late-month recurring items
-    const upcomingScheduledRecurring: Record<number, { label: string; amount: number }> = {
-      20: { label: 'AT&T Wireless & Cloud Backup Autopay', amount: 88.0 },
-      24: { label: 'NYTimes + Substack Monthly Digest', amount: 24.0 },
-      28: { label: 'Cleaners & Household Recurring Service', amount: 110.0 },
-    };
+    const unusedMonthlySavings = excludeUnusedSubs ? potentialUnusedSubSavings : 0;
+
+    // Scheduled late-month recurring items derived directly from user's active subscriptions
+    const upcomingScheduledRecurring: Record<number, { label: string; amount: number }> = {};
+    for (const sub of subscriptions) {
+      if (sub.status === 'Canceled') continue;
+      if (excludeUnusedSubs && sub.status === 'Unused / Review') continue;
+      if (sub.frequency === 'Annual subscription' && !sub.billingDayOrDate.toLowerCase().includes('nov')) {
+        continue;
+      }
+      const isoMatch = sub.billingDayOrDate.match(/^2026-11-(\d{2})$/);
+      const dayMatch = isoMatch || sub.billingDayOrDate.match(/\b(\d{1,2})(?:st|nd|rd|th)?\b/i);
+      if (dayMatch && dayMatch[1]) {
+        const billDay = Number(dayMatch[1]);
+        if (billDay > currentDay && billDay <= totalDaysInNov) {
+          const prev = upcomingScheduledRecurring[billDay];
+          upcomingScheduledRecurring[billDay] = prev
+            ? { label: `${prev.label}, ${sub.merchant}`, amount: prev.amount + sub.amount }
+            : { label: sub.merchant, amount: sub.amount };
+        }
+      }
+    }
 
     const points: DailyProjectionPoint[] = [];
     let runningIncome = 0;
@@ -130,11 +144,11 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
       const cumulativeTotalSpend = runningFixedSpend + runningDiscretionarySpend;
       const netCashFlowBalance = runningIncome - cumulativeTotalSpend;
 
-      // October reference curve (rent on day 1 + steady daily spend)
+      // October reference curve scaled purely from actual October spend
       const octoberReferenceSpend =
-        day === 1
-          ? 2450
-          : 2450 + ((summaryMetrics.previousMonthTotalSpending - 2450) / 29) * (day - 1);
+        summaryMetrics.previousMonthTotalSpending > 0
+          ? (summaryMetrics.previousMonthTotalSpending / totalDaysInNov) * day
+          : 0;
 
       points.push({
         day,
@@ -162,6 +176,7 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
       projectedRemainingSpend,
       effectiveDailyDiscretionary,
       unusedMonthlySavings,
+      potentialUnusedSubSavings,
     };
   }, [transactions, subscriptions, summaryMetrics, scenario, excludeUnusedSubs]);
 
@@ -289,19 +304,21 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
           </select>
 
           {/* Toggle Unused Subscriptions Exclusion */}
-          <button
-            type="button"
-            onClick={() => setExcludeUnusedSubs((prev) => !prev)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
-              excludeUnusedSubs
-                ? 'bg-emerald-700 text-white border-emerald-700'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
-            }`}
-          >
-            {excludeUnusedSubs
-              ? 'Simulating Unused Subs Canceled (+$108.99)'
-              : 'Simulate Canceling Unused Subs'}
-          </button>
+          {forecastData.potentialUnusedSubSavings > 0 && (
+            <button
+              type="button"
+              onClick={() => setExcludeUnusedSubs((prev) => !prev)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                excludeUnusedSubs
+                  ? 'bg-emerald-700 text-white border-emerald-700'
+                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
+              }`}
+            >
+              {excludeUnusedSubs
+                ? `Unused Subs Excluded (+${formatCurrency(forecastData.potentialUnusedSubSavings)})`
+                : `Exclude Unused Subs (+${formatCurrency(forecastData.potentialUnusedSubSavings)})`}
+            </button>
+          )}
         </div>
       </div>
 

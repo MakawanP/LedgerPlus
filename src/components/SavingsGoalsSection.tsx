@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
   Check,
-  Layers,
   Pencil,
   PiggyBank,
   Plus,
@@ -29,7 +28,6 @@ interface SavingsGoalsSectionProps {
   lastDeletedGoal?: SavingsGoal | null;
   onUndoDeleteGoal?: () => void;
   onDismissUndoGoal?: () => void;
-  onLoadStarterDemo?: () => void;
   compact?: boolean;
 }
 
@@ -44,7 +42,6 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
   lastDeletedGoal = null,
   onUndoDeleteGoal,
   onDismissUndoGoal,
-  onLoadStarterDemo,
   compact = false,
 }) => {
   const [isAddingGoal, setIsAddingGoal] = useState(false);
@@ -497,16 +494,6 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>Restore &ldquo;{lastDeletedGoal.name}&rdquo;</span>
-              </button>
-            )}
-            {onLoadStarterDemo && (
-              <button
-                type="button"
-                onClick={onLoadStarterDemo}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors"
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>Load Starter Demo Goals</span>
               </button>
             )}
           </div>

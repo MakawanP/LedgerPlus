@@ -167,13 +167,35 @@ export function initWorkspaceAndCloudAuth(
   });
 }
 
-export async function signInWithGoogleAndGmail(): Promise<{
+export async function signInWithGoogleAndGmail(
+  forceGmailConsent = false
+): Promise<{
   user: User;
   accessToken: string | null;
 }> {
+  if (typeof window !== 'undefined' && window.location.hostname === '127.0.0.1') {
+    const targetUrl = window.location.href.replace('://127.0.0.1', '://localhost');
+    window.location.replace(targetUrl);
+    throw new Error('Redirecting from 127.0.0.1 to localhost for Google OAuth compatibility...');
+  }
+
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, googleProvider);
+    const provider = new GoogleAuthProvider();
+    SCOPES.forEach((scope) => provider.addScope(scope));
+    provider.setCustomParameters(
+      forceGmailConsent
+        ? {
+            prompt: 'consent select_account',
+            include_granted_scopes: 'true',
+          }
+        : {
+            prompt: 'select_account',
+            include_granted_scopes: 'true',
+          }
+    );
+
+    const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     cachedAccessToken = credential?.accessToken ?? null;
     return {
@@ -1011,12 +1033,17 @@ export async function scanGmailReceiptsWithPermission(options: {
   });
 
   if (listRes.status === 401 || listRes.status === 403) {
+    const errBody = await listRes.json().catch(() => ({}));
+    const apiReason = String(errBody?.error?.message || '');
     cachedAccessToken = null;
     return {
       needsGmailAuth: true,
       messagesScanned: 0,
       extractedTransactions: [],
-      summaryNote: 'Gmail session expired — reconnect Gmail to scan receipts.',
+      summaryNote:
+        listRes.status === 403
+          ? `Gmail read permission was not granted (${apiReason || 'check the Gmail permission box in the Google popup'}). Click "Connect & Scan Gmail" and check "View your email messages and settings".`
+          : 'Gmail session expired — reconnect Gmail to scan receipts.',
     };
   }
 

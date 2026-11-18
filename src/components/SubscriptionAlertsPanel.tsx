@@ -16,7 +16,6 @@ interface SubscriptionAlertsPanelProps {
   savingsGoals: SavingsGoal[];
   onDismissAlert: (subscriptionId: string) => void;
   onCancelAndRedirectToGoal: (subscriptionId: string, goalId: string) => void;
-  onSimulateNewPriceHike: () => void;
 }
 
 export interface TriggeredSubscriptionAlert {
@@ -66,7 +65,6 @@ export const SubscriptionAlertsPanel: React.FC<SubscriptionAlertsPanelProps> = (
   savingsGoals,
   onDismissAlert,
   onCancelAndRedirectToGoal,
-  onSimulateNewPriceHike,
 }) => {
   const alerts = evaluateSubscriptionAlerts(subscriptions);
   const primaryGoal = savingsGoals[0];
@@ -104,13 +102,6 @@ export const SubscriptionAlertsPanel: React.FC<SubscriptionAlertsPanelProps> = (
             </strong>{' '}
             at risk
           </span>
-          <button
-            type="button"
-            onClick={onSimulateNewPriceHike}
-            className="px-3 py-1.5 text-xs font-medium bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0"
-          >
-            Simulate Rate Hike Scan
-          </button>
         </div>
       </div>
 

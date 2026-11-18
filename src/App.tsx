@@ -3,12 +3,13 @@ import { User } from 'firebase/auth';
 import {
   ChevronDown,
   Cloud,
-  Database,
   Download,
+  FileSpreadsheet,
   Layers,
   Moon,
   Plus,
   RotateCcw,
+  ScanLine,
   Sun,
 } from 'lucide-react';
 import {
@@ -20,12 +21,6 @@ import {
   Transaction,
   TransactionStatus,
 } from './types/finance';
-import {
-  DEMO_CATEGORY_BUDGETS,
-  DEMO_SAVINGS_GOALS,
-  DEMO_SUBSCRIPTIONS,
-  DEMO_TRANSACTIONS,
-} from './data/demoImports';
 import {
   DEFAULT_CATEGORY_BUDGETS,
   computeDashboardMetrics,
@@ -54,7 +49,7 @@ import { TransactionLedgerTable } from './components/TransactionLedgerTable';
 import { FinancialReportsSection } from './components/FinancialReportsSection';
 import { SubscriptionsTracker } from './components/SubscriptionsTracker';
 import { SpendingInsightsView } from './components/SpendingInsightsView';
-import { IngestSourceModal } from './components/IngestSourceModal';
+import { IngestModalMode, IngestSourceModal } from './components/IngestSourceModal';
 import { CategoryBudgetDistribution } from './components/CategoryBudgetDistribution';
 import { SavingsGoalsSection } from './components/SavingsGoalsSection';
 import { QuickAddFloatingMenu } from './components/QuickAddFloatingMenu';
@@ -95,6 +90,13 @@ function loadPersistedState<T>(key: string, fallback: T): T {
   }
 }
 
+function stripLegacyDemoRecords<T extends { id?: string }>(items: unknown): T[] {
+  if (!Array.isArray(items)) return [];
+  return (items as T[]).filter(
+    (item) => typeof item?.id !== 'string' || !item.id.startsWith('demo-')
+  );
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
   const [txSubView, setTxSubView] = useState<'both' | 'ledger' | 'subscriptions'>('both');
@@ -109,21 +111,24 @@ export default function App() {
     }
   });
 
-  // Local-first + real-time Cloud Ledger state (starts clean with 0 fake transactions; optional 1-click Demo Import)
+  // Local-first + real-time Cloud Ledger state
   const [transactions, setTransactions] = useState<Transaction[]>(() =>
-    loadPersistedState(STORAGE_KEYS.transactions, [])
+    stripLegacyDemoRecords<Transaction>(loadPersistedState(STORAGE_KEYS.transactions, []))
   );
   const [subscriptions, setSubscriptions] = useState<SubscriptionItem[]>(() =>
-    loadPersistedState(STORAGE_KEYS.subscriptions, [])
+    stripLegacyDemoRecords<SubscriptionItem>(loadPersistedState(STORAGE_KEYS.subscriptions, []))
   );
   const [categoryBudgets, setCategoryBudgets] = useState<Record<SpendingCategory, number>>(() =>
     loadPersistedState(STORAGE_KEYS.budgets, DEFAULT_CATEGORY_BUDGETS)
   );
   const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>(() =>
-    loadPersistedState(STORAGE_KEYS.goals, [])
+    stripLegacyDemoRecords<SavingsGoal>(loadPersistedState(STORAGE_KEYS.goals, []))
   );
 
   const [isIngestModalOpen, setIsIngestModalOpen] = useState(false);
+  const [ingestModalMode, setIngestModalMode] = useState<IngestModalMode>('csv_import');
+  const [isDataActionsMenuOpen, setIsDataActionsMenuOpen] = useState(false);
+  const dataActionsMenuRef = useRef<HTMLDivElement | null>(null);
   const [splitModalTxId, setSplitModalTxId] = useState<string | null>(null);
   const [showSyncHub, setShowSyncHub] = useState<boolean>(
     () => loadPersistedState<Transaction[]>(STORAGE_KEYS.transactions, []).length === 0
@@ -137,6 +142,7 @@ export default function App() {
   const [cloudUser, setCloudUser] = useState<User | null>(null);
   const [hasGmailToken, setHasGmailToken] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [authDiagnosticError, setAuthDiagnosticError] = useState<string | null>(null);
   const [cloudSyncMeta, setCloudSyncMeta] = useState<{
     lastSyncedDevice: string;
     updatedAtIso: string | null;
@@ -183,6 +189,33 @@ export default function App() {
       setToastBanner((prev) => (prev === msg ? null : prev));
     }, 4800);
   }, []);
+
+  const openIngestModal = useCallback((mode: IngestModalMode = 'csv_import') => {
+    setIngestModalMode(mode);
+    setIsDataActionsMenuOpen(false);
+    setIsIngestModalOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isDataActionsMenuOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (
+        dataActionsMenuRef.current &&
+        !dataActionsMenuRef.current.contains(e.target as Node)
+      ) {
+        setIsDataActionsMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsDataActionsMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onDocMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [isDataActionsMenuOpen]);
 
   // Sync Dark Mode class & window theme-color meta tag
   useEffect(() => {
@@ -319,15 +352,15 @@ export default function App() {
           data.vault &&
           Array.isArray(data.vault.transactions)
         ) {
-          setTransactions(data.vault.transactions);
+          setTransactions(stripLegacyDemoRecords<Transaction>(data.vault.transactions));
           if (Array.isArray(data.vault.subscriptions)) {
-            setSubscriptions(data.vault.subscriptions);
+            setSubscriptions(stripLegacyDemoRecords<SubscriptionItem>(data.vault.subscriptions));
           }
           if (data.vault.categoryBudgets && typeof data.vault.categoryBudgets === 'object') {
             setCategoryBudgets(data.vault.categoryBudgets);
           }
           if (Array.isArray(data.vault.savingsGoals)) {
-            setSavingsGoals(data.vault.savingsGoals);
+            setSavingsGoals(stripLegacyDemoRecords<SavingsGoal>(data.vault.savingsGoals));
           }
           setDiskMeta({
             vaultFilePath: data.vaultFilePath || 'data/local-ledger-vault.json',
@@ -408,25 +441,54 @@ export default function App() {
     setIsDarkMode((prev) => !prev);
   };
 
-  const handleSignInGoogle = useCallback(async (): Promise<boolean> => {
-    setIsSigningIn(true);
-    try {
-      const { user, accessToken } = await signInWithGoogleAndGmail();
-      setCloudUser(user);
-      setHasGmailToken(Boolean(accessToken));
-      showToast(
-        `Signed in as ${user.email || 'Google User'} — Phone & Computer live sync and Gmail receipt scanning ready.`
-      );
-      return Boolean(accessToken);
-    } catch (err: any) {
-      if (err?.code !== 'auth/popup-closed-by-user') {
-        showToast(err?.message || 'Google Sign-In could not complete. Please try again.');
+  const handleSignInGoogle = useCallback(
+    async (forceGmailConsent = false): Promise<boolean> => {
+      setIsSigningIn(true);
+      setAuthDiagnosticError(null);
+      try {
+        const { user, accessToken } = await signInWithGoogleAndGmail(forceGmailConsent);
+        setCloudUser(user);
+        setHasGmailToken(Boolean(accessToken));
+        showToast(
+          accessToken
+            ? `Signed in as ${user.email || 'Google User'} — Phone & Windows sync and Gmail receipt scanning ready.`
+            : `Signed in as ${user.email || 'Google User'}. Click "Connect & Scan Gmail" and check the Gmail permission box to scan receipts.`
+        );
+        return Boolean(accessToken);
+      } catch (err: any) {
+        const code = String(err?.code || '');
+        const msg = String(err?.message || '');
+        if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+          return false;
+        }
+        if (
+          code === 'auth/unauthorized-domain' ||
+          msg.includes('unauthorized-domain') ||
+          msg.includes('redirect_uri_mismatch')
+        ) {
+          setAuthDiagnosticError('unauthorized-domain');
+          setShowSyncHub(true);
+          showToast(
+            'Localhost is not yet authorized for Google OAuth — see the Sync & Gmail panel below for 1-click Cloud App launch or localhost setup.'
+          );
+          return false;
+        }
+        if (code === 'auth/popup-blocked') {
+          setAuthDiagnosticError('popup-blocked');
+          setShowSyncHub(true);
+          showToast('Sign-in popup was blocked by your browser — allow popups and try again.');
+          return false;
+        }
+        setAuthDiagnosticError(msg || code || 'auth-error');
+        setShowSyncHub(true);
+        showToast(msg || 'Google Sign-In could not complete. See details in Sync & Gmail.');
+        return false;
+      } finally {
+        setIsSigningIn(false);
       }
-      return false;
-    } finally {
-      setIsSigningIn(false);
-    }
-  }, [showToast]);
+    },
+    [showToast]
+  );
 
   const handleSignOutGoogle = useCallback(async (): Promise<void> => {
     await signOutFromCloud();
@@ -434,52 +496,6 @@ export default function App() {
     setHasGmailToken(false);
     showToast('Signed out of cloud sync on this device. Local backup remains available.');
   }, [showToast]);
-
-  const handleLoadStarterDemo = useCallback(() => {
-    const existingTxIds = new Set(
-      transactionsRef.current.map((t) => sanitizeDocId(t.id, 'tx'))
-    );
-    const demoTxToAdd = DEMO_TRANSACTIONS.filter(
-      (t) => !existingTxIds.has(sanitizeDocId(t.id, 'tx'))
-    );
-    const nextTransactions = [...demoTxToAdd, ...transactionsRef.current];
-
-    const existingSubIds = new Set(
-      subscriptionsRef.current.map((s) => sanitizeDocId(s.id, 'sub'))
-    );
-    const demoSubToAdd = DEMO_SUBSCRIPTIONS.filter(
-      (s) => !existingSubIds.has(sanitizeDocId(s.id, 'sub'))
-    );
-    const nextSubscriptions = [...subscriptionsRef.current, ...demoSubToAdd];
-
-    const existingGoalIds = new Set(
-      savingsGoalsRef.current.map((g) => sanitizeDocId(g.id, 'goal'))
-    );
-    const demoGoalToAdd = DEMO_SAVINGS_GOALS.filter(
-      (g) => !existingGoalIds.has(sanitizeDocId(g.id, 'goal'))
-    );
-    const nextGoals = [...savingsGoalsRef.current, ...demoGoalToAdd];
-
-    setTransactions(nextTransactions);
-    setSubscriptions(nextSubscriptions);
-    setSavingsGoals(nextGoals);
-    setCategoryBudgets(DEMO_CATEGORY_BUDGETS);
-    setShowSyncHub(false);
-
-    if (cloudUser?.uid) {
-      const uid = cloudUser.uid;
-      void (async () => {
-        await syncUpsertTransactionsToCloud(uid, DEMO_TRANSACTIONS, cloudTxIdsRef.current);
-        await syncUpsertSubscriptionsToCloud(uid, DEMO_SUBSCRIPTIONS, cloudSubIdsRef.current);
-        await syncUpsertSavingsGoalsToCloud(uid, DEMO_SAVINGS_GOALS, cloudGoalIdsRef.current);
-        await syncUpdateCategoryBudgetsInCloud(uid, DEMO_CATEGORY_BUDGETS);
-      })();
-    }
-
-    showToast(
-      `Loaded starter demo data (${DEMO_TRANSACTIONS.length} transactions, ${DEMO_SUBSCRIPTIONS.length} subscriptions, ${DEMO_SAVINGS_GOALS.length} savings goals). Delete any row anytime.`
-    );
-  }, [cloudUser?.uid, showToast]);
 
   const handleHydrateFromVaultFile = useCallback(
     (loaded: Partial<WindowsVaultPayload>, sourceLabel: string) => {
@@ -519,7 +535,7 @@ export default function App() {
     [cloudUser, showToast]
   );
 
-  const handleResetDemoData = () => {
+  const handleResetLedger = () => {
     const prevTxIds = Array.from(cloudTxIdsRef.current);
     const prevSubIds = Array.from(cloudSubIdsRef.current);
     const prevGoalIds = Array.from(cloudGoalIdsRef.current);
@@ -892,33 +908,6 @@ export default function App() {
       `Canceled "${targetSub.merchant}" and redirected +${formatCurrency(
         targetSub.amount
       )}/mo into "${targetGoal?.name || 'Savings Goal'}".`
-    );
-  };
-
-  const handleSimulateNewPriceHike = () => {
-    const nextSubs = subscriptionsRef.current.map((sub) => {
-      if (sub.id === 'sub-07') {
-        return {
-          ...sub,
-          previousAmount: 22.99,
-          amount: 25.99,
-          estimatedAnnualCost: 311.88,
-          status: 'Price Increased' as const,
-          alertDismissed: false,
-          usageNote:
-            'Automated Alert: Netflix 4K plan increased +$3.00/mo (+13.0%) from $22.99 to $25.99',
-        };
-      }
-      return { ...sub, alertDismissed: false };
-    });
-
-    setSubscriptions(nextSubs);
-    if (cloudUser?.uid && nextSubs.length > 0) {
-      void syncUpsertSubscriptionsToCloud(cloudUser.uid, nextSubs, cloudSubIdsRef.current);
-    }
-
-    showToast(
-      'Automated Watchdog Alert: Detected price increase on Netflix 4K (+$3.00/mo) and refreshed >3-month inactivity alerts.'
     );
   };
 
@@ -1299,11 +1288,11 @@ export default function App() {
         <div className="flex items-center shrink-0">
           <button
             type="button"
-            onClick={() => setIsIngestModalOpen(true)}
+            onClick={() => openIngestModal('csv_import')}
             className="min-h-[38px] inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-2 text-xs font-medium text-white dark:text-slate-950 bg-slate-900 dark:bg-slate-100 rounded-lg hover:bg-slate-800 dark:hover:bg-white transition-colors whitespace-nowrap shrink-0"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Collect Transactions</span>
+            <Layers className="w-3.5 h-3.5" />
+            <span>Import / Export / Scan</span>
           </button>
         </div>
       </header>
@@ -1389,17 +1378,6 @@ export default function App() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {transactions.length === 0 && (
-                <button
-                  type="button"
-                  onClick={handleLoadStarterDemo}
-                  className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
-                >
-                  <Database className="w-3.5 h-3.5" />
-                  <span>Import Starter Demo</span>
-                </button>
-              )}
-
               <button
                 type="button"
                 aria-expanded={showSyncHub}
@@ -1439,23 +1417,97 @@ export default function App() {
                 )}
               </button>
 
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Export CSV</span>
-              </button>
+              <div ref={dataActionsMenuRef} className="relative">
+                <button
+                  type="button"
+                  aria-expanded={isDataActionsMenuOpen}
+                  aria-haspopup="menu"
+                  onClick={() => setIsDataActionsMenuOpen((prev) => !prev)}
+                  className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Import / Export / Scan</span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform duration-150 ${
+                      isDataActionsMenuOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setIsIngestModalOpen(true)}
-                className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800/80 border border-transparent dark:border-slate-700/80 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0"
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>Import Receipt / Presets</span>
-              </button>
+                {isDataActionsMenuOpen && (
+                  <div
+                    role="menu"
+                    aria-label="Import, Export & Scan Options"
+                    className="absolute right-0 mt-1.5 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg p-1.5 z-40 text-xs space-y-0.5"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => openIngestModal('csv_import')}
+                      className="w-full px-3 py-2 text-left font-medium text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-between transition-colors"
+                    >
+                      <span className="flex items-center gap-2">
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                        <span>Import CSV Statement</span>
+                      </span>
+                      <span className="font-mono text-[10px] text-slate-400">.csv</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => openIngestModal('ai_parse')}
+                      className="w-full px-3 py-2 text-left font-medium text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-between transition-colors"
+                    >
+                      <span className="flex items-center gap-2">
+                        <ScanLine className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300 shrink-0" />
+                        <span>Scan Receipt / PDF</span>
+                      </span>
+                      <span className="font-mono text-[10px] text-slate-400">OCR</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => openIngestModal('export_csv')}
+                      className="w-full px-3 py-2 text-left font-medium text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-between transition-colors"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Download className="w-3.5 h-3.5 text-slate-700 dark:text-slate-300 shrink-0" />
+                        <span>Export CSV...</span>
+                      </span>
+                      <span className="font-mono text-[10px] text-slate-400">
+                        {transactions.length}
+                      </span>
+                    </button>
+
+                    <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsDataActionsMenuOpen(false);
+                        handleExportCsv();
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-[11px] font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-between transition-colors"
+                    >
+                      <span>Quick Download Nov CSV</span>
+                      <Download className="w-3 h-3 shrink-0" />
+                    </button>
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => openIngestModal('manual')}
+                      className="w-full px-3 py-1.5 text-left text-[11px] font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-between transition-colors"
+                    >
+                      <span>Log Manual Entry</span>
+                      <Plus className="w-3 h-3 shrink-0" />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -1467,10 +1519,12 @@ export default function App() {
                 cloudUser={cloudUser}
                 hasGmailToken={hasGmailToken}
                 isSigningIn={isSigningIn}
+                authDiagnosticError={authDiagnosticError}
+                onClearAuthDiagnostic={() => setAuthDiagnosticError(null)}
                 cloudSyncMeta={cloudSyncMeta}
                 onSignInGoogle={handleSignInGoogle}
                 onSignOutGoogle={handleSignOutGoogle}
-                onLoadStarterDemo={handleLoadStarterDemo}
+                onOpenCsvImport={() => openIngestModal('csv_import')}
                 onHydrateVault={handleHydrateFromVaultFile}
                 onCommitPulledTransactions={handleCommitTransactions}
                 onShowToast={showToast}
@@ -1595,8 +1649,8 @@ export default function App() {
                   onDeleteTransactions={handleDeleteTransactions}
                   onOpenSplitModal={(tx) => setSplitModalTxId(tx.id)}
                   onToggleSplitParticipantSettled={handleToggleSplitParticipantSettled}
-                  onLoadStarterDemo={handleLoadStarterDemo}
-                  onOpenIngestModal={() => setIsIngestModalOpen(true)}
+                  onOpenCsvImport={() => openIngestModal('csv_import')}
+                  onOpenIngestModal={() => openIngestModal('ai_parse')}
                 />
               </>
             )}
@@ -1608,7 +1662,6 @@ export default function App() {
                 onToggleCancelSubscription={handleToggleCancelSubscription}
                 onDismissAlert={handleDismissSubscriptionAlert}
                 onCancelAndRedirectToGoal={handleCancelAndRedirectToGoal}
-                onSimulateNewPriceHike={handleSimulateNewPriceHike}
               />
             )}
           </div>
@@ -1640,7 +1693,6 @@ export default function App() {
             lastDeletedGoal={lastDeletedGoal}
             onUndoDeleteGoal={handleUndoDeleteGoal}
             onDismissUndoGoal={() => setLastDeletedGoal(null)}
-            onLoadStarterDemo={handleLoadStarterDemo}
           />
         )}
 
@@ -1652,7 +1704,6 @@ export default function App() {
             onSettleAllForFriend={handleSettleAllForFriend}
             onOpenSplitModal={(tx) => setSplitModalTxId(tx.id)}
             onQuickCommitTransaction={handleCommitTransactions}
-            onLoadStarterDemo={handleLoadStarterDemo}
           />
         )}
       </main>
@@ -1666,7 +1717,7 @@ export default function App() {
           <div className="flex flex-wrap items-center gap-3">
             <a
               href="/api/release/windows.zip"
-              download="LedgerPulse-Windows-v1.0.0.zip"
+              download="LedgerPulse-Windows-v1.0.2.zip"
               className="hover:text-slate-900 dark:hover:text-slate-100 transition-colors font-medium"
             >
               Windows Release (.zip)
@@ -1674,10 +1725,10 @@ export default function App() {
             <span aria-hidden="true">·</span>
             <button
               type="button"
-              onClick={handleLoadStarterDemo}
+              onClick={() => openIngestModal('csv_import')}
               className="hover:text-slate-900 dark:hover:text-slate-100 transition-colors"
             >
-              Load Demo Data
+              Import / Export / Scan
             </button>
             <span aria-hidden="true">·</span>
             <button
@@ -1695,7 +1746,7 @@ export default function App() {
                 </span>
                 <button
                   type="button"
-                  onClick={handleResetDemoData}
+                  onClick={handleResetLedger}
                   className="px-2 py-0.5 font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded"
                 >
                   Confirm Reset
@@ -1718,24 +1769,17 @@ export default function App() {
                 <span>Reset Ledger</span>
               </button>
             )}
-            <span aria-hidden="true">·</span>
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className="hover:text-slate-900 dark:hover:text-slate-100 transition-colors"
-            >
-              Download CSV
-            </button>
           </div>
         </div>
       </footer>
 
-      {/* Modal for Receipt OCR, Phone Camera Capture, Demo Presets & Statement Ingestion */}
+      {/* Unified Modal for CSV Import, Receipt/PDF OCR, CSV Export & Manual Entry */}
       <IngestSourceModal
         isOpen={isIngestModalOpen}
+        initialMode={ingestModalMode}
         onClose={() => setIsIngestModalOpen(false)}
         existingTransactions={transactions}
-        onLoadStarterDemo={handleLoadStarterDemo}
+        onExportNotification={showToast}
         onCommitTransactions={handleCommitTransactions}
       />
 
@@ -1750,7 +1794,7 @@ export default function App() {
       <QuickAddFloatingMenu
         existingTransactions={transactions}
         onQuickCommitTransaction={handleCommitTransactions}
-        onOpenFullIngestModal={() => setIsIngestModalOpen(true)}
+        onOpenFullIngestModal={() => openIngestModal('csv_import')}
       />
 
       {/* Thumb-Friendly Mobile Bottom Navigation (<768px) */}

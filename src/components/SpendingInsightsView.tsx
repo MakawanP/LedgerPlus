@@ -227,7 +227,7 @@ export const SpendingInsightsView: React.FC<SpendingInsightsViewProps> = ({
 
           {insights.length === 0 ? (
             <div className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">
-              No ledger findings yet. Import starter demo data, scan a receipt, or log transactions to generate live diagnostic insights.
+              No ledger findings yet. Import a CSV statement, scan a receipt, or log transactions to generate live diagnostic insights.
             </div>
           ) : (
             <div className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">

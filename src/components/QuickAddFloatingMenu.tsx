@@ -3,7 +3,7 @@ import {
   ArrowDownLeft,
   Banknote,
   Check,
-  FileText,
+  Layers,
   Plus,
   Split,
   X,
@@ -101,34 +101,6 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
     setNote('');
     setSplitEnabled(false);
     setMenuState('one_off_income');
-  };
-
-  const applyQuickPreset = (preset: {
-    merchant: string;
-    amount: string;
-    category?: SpendingCategory;
-    account?: string;
-    note?: string;
-    splitFriendName?: string;
-    splitFriendAmount?: string;
-    splitItemNote?: string;
-  }) => {
-    setMerchantOrSource(preset.merchant);
-    setAmount(preset.amount);
-    if (preset.category) setCategory(preset.category);
-    if (preset.account) setPaymentOrAccount(preset.account);
-    if (preset.note !== undefined) setNote(preset.note);
-    if (preset.splitFriendName && preset.splitFriendAmount) {
-      setSplitEnabled(true);
-      setSplitFriendName(preset.splitFriendName);
-      setSplitFriendAmount(preset.splitFriendAmount);
-      setSplitItemNote(preset.splitItemNote || '');
-    } else {
-      setSplitEnabled(false);
-      setSplitFriendName('');
-      setSplitFriendAmount('');
-      setSplitItemNote('');
-    }
   };
 
   const numericTotal = parseFloat(amount) || 0;
@@ -300,97 +272,6 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="p-4 space-y-3 text-xs overflow-y-auto">
-              {/* Quick Fill Presets */}
-              <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                <span>Presets:</span>
-                {menuState === 'cash_expense' ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        applyQuickPreset({
-                          merchant: 'Sightglass Coffee',
-                          amount: '20.00',
-                          category: 'Coffee & Drinks',
-                          account: 'Apple Pay · Chase Sapphire ••4821',
-                          note: 'Covered coffee run',
-                          splitFriendName: 'Alex',
-                          splitFriendAmount: '10.00',
-                          splitItemNote: "Friend's drink",
-                        })
-                      }
-                      className="font-semibold text-amber-700 dark:text-amber-400 hover:underline underline-offset-2 py-0.5"
-                    >
-                      Coffee Split ($20 paid · $10 owed)
-                    </button>
-                    <span aria-hidden="true">·</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        applyQuickPreset({
-                          merchant: 'Ferry Plaza Farmers Market',
-                          amount: '22.00',
-                          category: 'Groceries',
-                          account: 'Cash (Physical Currency)',
-                          note: 'Cash produce stand',
-                        })
-                      }
-                      className="text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 underline underline-offset-2 py-0.5"
-                    >
-                      Farmers Market ($22)
-                    </button>
-                    <span aria-hidden="true">·</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        applyQuickPreset({
-                          merchant: 'Civic Garage Valet',
-                          amount: '15.00',
-                          category: 'Gas & Parking',
-                          account: 'Cash (Physical Currency)',
-                          note: 'Cash parking attendant',
-                        })
-                      }
-                      className="text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 underline underline-offset-2 py-0.5"
-                    >
-                      Valet ($15)
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        applyQuickPreset({
-                          merchant: 'Freelance UI Advisory Payout',
-                          amount: '650.00',
-                          account: 'ACH Checking ••8830',
-                          note: 'One-off client invoice',
-                        })
-                      }
-                      className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 underline underline-offset-2 py-0.5"
-                    >
-                      Freelance ($650)
-                    </button>
-                    <span aria-hidden="true">·</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        applyQuickPreset({
-                          merchant: 'Marketplace Gear Sale (Cash)',
-                          amount: '180.00',
-                          account: 'Cash (Physical Currency)',
-                          note: 'Sold camera lens locally',
-                        })
-                      }
-                      className="text-emerald-700 dark:text-emerald-400 hover:text-emerald-900 dark:hover:text-emerald-300 underline underline-offset-2 py-0.5"
-                    >
-                      Cash Sale ($180)
-                    </button>
-                  </>
-                )}
-              </div>
-
               {/* Merchant / Income Payer + Exact Total Paid */}
               <div className="grid grid-cols-12 gap-2.5">
                 <div className="col-span-7">
@@ -699,10 +580,15 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
                 setMenuState('closed');
                 onOpenFullIngestModal();
               }}
-              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-2.5 transition-colors"
+              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-between transition-colors"
             >
-              <FileText className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
-              <span>Import Receipt PDF / Image / CSV...</span>
+              <span className="flex items-center gap-2.5">
+                <Layers className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                <span>Import, Export &amp; Scan...</span>
+              </span>
+              <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">
+                CSV · PDF
+              </span>
             </button>
           </div>
         )}

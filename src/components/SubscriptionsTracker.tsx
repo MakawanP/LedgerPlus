@@ -11,7 +11,6 @@ interface SubscriptionsTrackerProps {
   onToggleCancelSubscription: (id: string) => void;
   onDismissAlert: (id: string) => void;
   onCancelAndRedirectToGoal: (subId: string, goalId: string) => void;
-  onSimulateNewPriceHike: () => void;
 }
 
 export const SubscriptionsTracker: React.FC<SubscriptionsTrackerProps> = ({
@@ -20,7 +19,6 @@ export const SubscriptionsTracker: React.FC<SubscriptionsTrackerProps> = ({
   onToggleCancelSubscription,
   onDismissAlert,
   onCancelAndRedirectToGoal,
-  onSimulateNewPriceHike,
 }) => {
   const [filterFreq, setFilterFreq] = useState<'All' | SubscriptionFrequency | 'Review'>('All');
 
@@ -60,7 +58,6 @@ export const SubscriptionsTracker: React.FC<SubscriptionsTrackerProps> = ({
         savingsGoals={savingsGoals}
         onDismissAlert={onDismissAlert}
         onCancelAndRedirectToGoal={onCancelAndRedirectToGoal}
-        onSimulateNewPriceHike={onSimulateNewPriceHike}
       />
 
       {/* Summary Header */}

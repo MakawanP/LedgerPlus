@@ -7,10 +7,10 @@ import {
   Copy,
   Database,
   Download,
-  FolderInput,
+  ExternalLink,
+  FileSpreadsheet,
   FolderOpen,
   HardDrive,
-  Layers,
   Loader2,
   LogOut,
   Mail,
@@ -67,14 +67,16 @@ interface WindowsVaultAndSyncPanelProps {
   cloudUser: User | null;
   hasGmailToken: boolean;
   isSigningIn: boolean;
+  authDiagnosticError?: string | null;
+  onClearAuthDiagnostic?: () => void;
   cloudSyncMeta: {
     lastSyncedDevice: string;
     updatedAtIso: string | null;
     isCloudReady: boolean;
   };
-  onSignInGoogle: () => Promise<boolean>;
+  onSignInGoogle: (forceGmailConsent?: boolean) => Promise<boolean>;
   onSignOutGoogle: () => Promise<void>;
-  onLoadStarterDemo: () => void;
+  onOpenCsvImport: () => void;
   onHydrateVault: (loaded: Partial<WindowsVaultPayload>, sourceLabel: string) => void;
   onCommitPulledTransactions: (
     newItems: Transaction[],
@@ -83,6 +85,9 @@ interface WindowsVaultAndSyncPanelProps {
   ) => void;
   onShowToast: (msg: string) => void;
 }
+
+const CLOUD_AUTHORIZED_APP_URL =
+  'https://ais-pre-htcfj44ymcyxj7dcndkfx2-860080216343.us-east1.run.app';
 
 function formatBytes(bytes: number | null): string {
   if (bytes === null || bytes <= 0) return '—';
@@ -149,10 +154,12 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
   cloudUser,
   hasGmailToken,
   isSigningIn,
+  authDiagnosticError = null,
+  onClearAuthDiagnostic,
   cloudSyncMeta,
   onSignInGoogle,
   onSignOutGoogle,
-  onLoadStarterDemo,
+  onOpenCsvImport,
   onHydrateVault,
   onCommitPulledTransactions,
   onShowToast,
@@ -167,6 +174,7 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
   // Gmail In-App Receipt Scanner State
   const [gmailDaysWindow, setGmailDaysWindow] = useState<7 | 30 | 90>(30);
   const [isScanningGmail, setIsScanningGmail] = useState(false);
+  const [gmailConsentNotice, setGmailConsentNotice] = useState<string | null>(null);
   const [gmailPreviewResult, setGmailPreviewResult] = useState<{
     messagesScanned: number;
     extractedTransactions: any[];
@@ -437,10 +445,11 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
   // Scan Real Gmail Receipts with User Permission
   const handleScanGmailClick = async () => {
     setIsScanningGmail(true);
+    setGmailConsentNotice(null);
     setGmailPreviewResult(null);
     try {
       if (!cloudUser || !hasGmailToken) {
-        const connected = await onSignInGoogle();
+        const connected = await onSignInGoogle(true);
         if (!connected) {
           setIsScanningGmail(false);
           return;
@@ -454,13 +463,21 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
       });
 
       if (result.needsGmailAuth) {
-        const reconnected = await onSignInGoogle();
-        if (!reconnected) return;
+        const reconnected = await onSignInGoogle(true);
+        if (!reconnected) {
+          setGmailConsentNotice(result.summaryNote);
+          return;
+        }
         const retryResult = await scanGmailReceiptsWithPermission({
           daysWindow: gmailDaysWindow,
           maxMessages: 10,
           existingTransactions: transactionsRef.current,
         });
+        if (retryResult.needsGmailAuth) {
+          setGmailConsentNotice(retryResult.summaryNote);
+          onShowToast(retryResult.summaryNote);
+          return;
+        }
         setGmailPreviewResult(retryResult);
         if (retryResult.extractedTransactions.length === 0) {
           onShowToast(retryResult.summaryNote);
@@ -473,7 +490,9 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
         onShowToast(result.summaryNote);
       }
     } catch (err: any) {
-      onShowToast(err?.message || 'Unable to scan Gmail receipts right now.');
+      const msg = String(err?.message || 'Unable to scan Gmail receipts right now.');
+      setGmailConsentNotice(msg);
+      onShowToast(msg);
     } finally {
       setIsScanningGmail(false);
     }
@@ -607,29 +626,13 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [executeAutomatedPull, handleLinkOrSaveLocalFile, handleOpenLocalVaultFile]);
 
-  const handleSimulateApplePayAlert = async () => {
-    try {
-      const res = await fetch('/api/apple-pay/simulate', { method: 'POST' });
-      if (!res.ok) throw new Error('Failed to simulate Apple Pay notification.');
-      await executeAutomatedPull(false);
-    } catch (err: any) {
-      onShowToast(err?.message || 'Failed to trigger simulated Apple Pay alert.');
-    }
-  };
-
-  const handleDropSampleReceipt = async () => {
-    try {
-      const res = await fetch('/api/local-inbox/drop-sample', { method: 'POST' });
-      if (!res.ok) throw new Error('Failed to write sample .eml receipt.');
-      await executeAutomatedPull(false);
-    } catch (err: any) {
-      onShowToast(err?.message || 'Failed to test local inbox receipt pull.');
-    }
-  };
-
   const appOrigin =
-    typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-  const webhookEndpoint = `${appOrigin}/api/apple-pay/webhook`;
+    typeof window !== 'undefined' ? window.location.origin : CLOUD_AUTHORIZED_APP_URL;
+  const isLocalhostOrigin =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const mobileShareUrl = isLocalhostOrigin ? CLOUD_AUTHORIZED_APP_URL : appOrigin;
+  const webhookEndpoint = `${mobileShareUrl}/api/apple-pay/webhook`;
 
   const handleCopyWebhook = async () => {
     try {
@@ -641,7 +644,7 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
 
   const handleCopyAppUrl = async () => {
     try {
-      await navigator.clipboard.writeText(appOrigin);
+      await navigator.clipboard.writeText(mobileShareUrl);
       setCopiedAppUrl(true);
       setTimeout(() => setCopiedAppUrl(false), 2000);
     } catch {}
@@ -675,7 +678,7 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
       />
 
       <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-3">
-        {/* Two-Column Strip: (1) Phone & Computer Cloud Sync + Gmail | (2) Demo Imports & Feed Controls */}
+        {/* Two-Column Strip: (1) Phone & Computer Cloud Sync + Gmail | (2) CSV Import & Feed Controls */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch">
           {/* Left (7 cols): Cloud Sync Across Phone & Computer + In-App Gmail Connection */}
           <div className="lg:col-span-7 p-3.5 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -764,13 +767,13 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
             </div>
           </div>
 
-          {/* Right (5 cols): Starter Demo Data + Multi-Device Install + Connections Hub */}
+          {/* Right (5 cols): CSV Import + Multi-Device Install + Connections Hub */}
           <div className="lg:col-span-5 p-3.5 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-start gap-2.5 min-w-0">
               <Database className="w-4 h-4 text-slate-700 dark:text-slate-300 shrink-0 mt-0.5" />
               <div className="min-w-0 text-xs">
                 <div className="font-semibold text-slate-900 dark:text-slate-100">
-                  Demo Imports & Connected Feeds
+                  Import, Export &amp; Connected Feeds
                 </div>
                 <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate font-mono tabular-nums">
                   <span>{vaultPayload.transactions.length} records</span>
@@ -789,11 +792,11 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
             <div className="flex flex-wrap items-center gap-1.5 shrink-0">
               <button
                 type="button"
-                onClick={onLoadStarterDemo}
+                onClick={onOpenCsvImport}
                 className="min-h-[36px] inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
               >
-                <Layers className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-                <span>Load Demo Data</span>
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
+                <span>Import / Export / Scan</span>
               </button>
 
               <button
@@ -808,7 +811,7 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
 
               <a
                 href="/api/release/windows.zip"
-                download="LedgerPulse-Windows-v1.0.0.zip"
+                download="LedgerPulse-Windows-v1.0.2.zip"
                 title="Download standalone Windows 10/11 desktop package (.zip)"
                 className="min-h-[36px] inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
               >
@@ -830,6 +833,78 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
             </div>
           </div>
         </div>
+
+        {/* Windows Localhost OAuth / Gmail Permission Troubleshooting Helper */}
+        {(authDiagnosticError || gmailConsentNotice) && (
+          <div className="p-4 bg-amber-50/90 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/70 rounded-lg space-y-2.5 text-xs">
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="font-semibold text-slate-900 dark:text-slate-100">
+                  {authDiagnosticError === 'unauthorized-domain'
+                    ? 'Google OAuth Domain Notice on Localhost (Windows)'
+                    : authDiagnosticError === 'popup-blocked'
+                    ? 'Google Sign-In Popup Blocked'
+                    : 'Gmail Connection Notice'}
+                </div>
+
+                {authDiagnosticError === 'unauthorized-domain' ? (
+                  <div className="text-slate-700 dark:text-slate-300 space-y-1.5 leading-relaxed">
+                    <p>
+                      Google OAuth for Gmail (<code className="font-mono">gmail.readonly</code>) only allows domains explicitly registered in your Firebase &amp; Google Cloud project. Choose either option below:
+                    </p>
+                    <p>
+                      <strong>Option 1 (Instant — Zero Console Setup):</strong> Open the pre-authorized Cloud App URL below (or run the updated <code className="font-mono">LedgerPulse.vbs</code> launcher), where Gmail &amp; multi-device sync are already authorized.
+                    </p>
+                    <p>
+                      <strong>Option 2 (Authorize Localhost):</strong> In Firebase Console (<code className="font-mono">gen-lang-client-0623877657</code> → Authentication → Settings → Authorized domains), add <code className="font-mono">localhost</code>, and in Google Cloud Console → Credentials → OAuth 2.0 Client IDs, add <code className="font-mono">http://localhost:3000</code> under Authorized JavaScript origins.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
+                    {gmailConsentNotice ||
+                      (authDiagnosticError === 'popup-blocked'
+                        ? 'Allow popups for this window in Microsoft Edge or Chrome, then click "Connect & Scan Gmail" again.'
+                        : authDiagnosticError)}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setGmailConsentNotice(null);
+                  onClearAuthDiagnostic?.();
+                }}
+                aria-label="Dismiss notice"
+                className="p-1 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 rounded shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <a
+                href={CLOUD_AUTHORIZED_APP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md transition-colors whitespace-nowrap"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span>Open Cloud-Authorized App (Gmail Ready)</span>
+              </a>
+
+              <button
+                type="button"
+                onClick={() => void onSignInGoogle(true)}
+                disabled={isSigningIn}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 font-medium text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md transition-colors whitespace-nowrap"
+              >
+                <Mail className="w-3.5 h-3.5" />
+                <span>Retry Gmail Consent Popup</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Inline Gmail Scan Review Panel (when receipts are extracted from Gmail) */}
         {gmailPreviewResult && gmailPreviewResult.extractedTransactions.length > 0 && (
@@ -983,17 +1058,12 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      02. Apple Pay & Shortcuts Webhook
+                      02. Apple Pay &amp; Shortcuts Webhook
                     </span>
-                    <button
-                      type="button"
-                      onClick={handleSimulateApplePayAlert}
-                      disabled={isSyncingPull}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline whitespace-nowrap"
-                    >
+                    <span className="inline-flex items-center gap-1 text-[11px] font-mono text-emerald-700 dark:text-emerald-400">
                       <BellRing className="w-3 h-3" />
-                      <span>Test Tap</span>
-                    </button>
+                      <span>POST JSON</span>
+                    </span>
                   </div>
                   <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
                     Forward iPhone Wallet automation taps (`POST JSON`) so mobile card spends appear automatically on both phone and computer.
@@ -1051,15 +1121,6 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
                   </button>
                   <button
                     type="button"
-                    onClick={handleDropSampleReceipt}
-                    disabled={isSyncingPull}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-                  >
-                    <FolderInput className="w-3 h-3" />
-                    <span>Test .eml</span>
-                  </button>
-                  <button
-                    type="button"
                     onClick={() => executeAutomatedPull(false)}
                     disabled={isSyncingPull}
                     aria-label="Check local feeds now"
@@ -1110,14 +1171,16 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
               <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-lg space-y-2">
                 <div className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
                   <Smartphone className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-                  <span>01. Install on iPhone or Android Phone</span>
+                  <span>01. Install &amp; Sync on iPhone (or Android)</span>
                 </div>
-                <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Open this link on your phone, sign in with Google, and install to your home screen (on iPhone Safari: tap <strong>Share</strong> → <strong>Add to Home Screen</strong>; on Android Chrome: tap <strong>Install App</strong>).
-                </p>
-                <div className="flex items-center gap-1.5">
+                <ol className="list-decimal list-inside text-slate-600 dark:text-slate-400 space-y-1 leading-relaxed">
+                  <li>Open the Cloud App URL below in <strong>Safari</strong> on your iPhone.</li>
+                  <li>Tap the <strong>Share</strong> icon (square with arrow) → <strong>Add to Home Screen</strong> to install it like a native iOS app.</li>
+                  <li>Tap <strong>Sign in with Google</strong> using the <strong>same Google account</strong> as your Windows PC—all transactions, split bills, budgets, and goals sync live over Wi-Fi &amp; 5G.</li>
+                </ol>
+                <div className="flex items-center gap-1.5 pt-1">
                   <code className="flex-1 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded font-mono text-[11px] truncate">
-                    {appOrigin}
+                    {mobileShareUrl}
                   </code>
                   <button
                     type="button"
@@ -1125,7 +1188,7 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
                     className="inline-flex items-center gap-1 px-2.5 py-1.5 font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-950 rounded hover:opacity-90 whitespace-nowrap"
                   >
                     {copiedAppUrl ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    <span>{copiedAppUrl ? 'Copied Link' : 'Copy Link'}</span>
+                    <span>{copiedAppUrl ? 'Copied Link' : 'Copy iPhone Link'}</span>
                   </button>
                 </div>
               </div>
@@ -1140,7 +1203,7 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
                 <div className="flex flex-wrap items-center gap-2 pt-0.5">
                   <a
                     href="/api/release/windows.zip"
-                    download="LedgerPulse-Windows-v1.0.0.zip"
+                    download="LedgerPulse-Windows-v1.0.2.zip"
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md transition-colors whitespace-nowrap"
                   >
                     <Download className="w-3.5 h-3.5" />

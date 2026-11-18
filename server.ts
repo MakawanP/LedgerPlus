@@ -17,7 +17,7 @@ const APPLE_PAY_QUEUE_PATH = path.join(DATA_DIR, 'apple-pay-queue.json');
 const PREBUILT_WINDOWS_ZIP_PATH = path.join(
   __dirname,
   'release',
-  'LedgerPulse-Windows-v1.0.0.zip'
+  'LedgerPulse-Windows-v1.0.2.zip'
 );
 
 const ZIP_CRC32_TABLE = (() => {
@@ -143,14 +143,6 @@ function writeApplePayQueue(queue: QueuedApplePayAlert[]) {
   fs.writeFileSync(APPLE_PAY_QUEUE_PATH, JSON.stringify(queue, null, 2), 'utf-8');
 }
 
-const SAMPLE_APPLE_PAY_ALERTS = [
-  'Apple Pay Notification [2026-11-17 13:42]: $16.45 at Sweetgreen (Chase Sapphire ••4821) — Salad bowl & sparkling water.',
-  'Apple Pay Notification [2026-11-17 14:05]: $48.90 at SQ *TERMINAL 42B VENTURES (Apple Card ••2019) — Point-of-sale tap.',
-  'Apple Pay Notification [2026-11-17 08:42]: $6.75 at Blue Bottle Coffee (Apple Pay · Chase Sapphire ••4821) — Espresso & pastry.',
-  'Apple Pay Notification [2026-11-17 15:18]: $34.20 at Uber Trip (Apple Pay · Amex Gold ••1094) — Downtown ride.',
-];
-let sampleAlertCursor = 0;
-
 const ALLOWED_CATEGORIES = [
   'Food & Restaurants',
   'Coffee & Drinks',
@@ -170,6 +162,16 @@ const ALLOWED_CATEGORIES = [
   'Other / Uncategorized',
 ];
 
+function hasConfiguredGeminiApiKey(): boolean {
+  const key = (process.env.GEMINI_API_KEY || '').trim();
+  return (
+    key.length > 10 &&
+    key !== 'your_api_key_here' &&
+    key !== 'MY_GEMINI_API_KEY' &&
+    !key.startsWith('YOUR_')
+  );
+}
+
 function getGeminiClient() {
   return new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY,
@@ -179,6 +181,215 @@ function getGeminiClient() {
       },
     },
   });
+}
+
+function inferCategoryFromText(merchantAndBody: string): {
+  category: string;
+  uncertain: boolean;
+} {
+  const s = merchantAndBody.toLowerCase();
+  if (/\b(uber\s*eats|doordash|grubhub|sweetgreen|chipotle|tartine|restaurant|diner|bistro|pizza|sushi|grill)\b/.test(s)) {
+    return { category: 'Food & Restaurants', uncertain: false };
+  }
+  if (/\b(starbucks|blue bottle|philz|peet|coffee|cafe|espresso|bakery)\b/.test(s)) {
+    return { category: 'Coffee & Drinks', uncertain: false };
+  }
+  if (/\b(whole foods|trader joe|safeway|kroger|costco|instacart|grocery|supermarket|market)\b/.test(s)) {
+    return { category: 'Groceries', uncertain: false };
+  }
+  if (/\b(uber|lyft|waymo|taxi|cab|transit|bart|mta|caltrain)\b/.test(s)) {
+    return { category: 'Transportation / Uber / Taxi', uncertain: false };
+  }
+  if (/\b(shell|chevron|texaco|arco|exxon|mobil|parking|parkmobile|fasTrak|toll)\b/.test(s)) {
+    return { category: 'Gas & Parking', uncertain: false };
+  }
+  if (/\b(netflix|spotify|hulu|disney|apple\.com\/bill|icloud|youtube|openai|chatgpt|claude|adobe|github|patreon|substack|nytimes|membership|subscription)\b/.test(s)) {
+    return { category: 'Subscriptions', uncertain: false };
+  }
+  if (/\b(pg&e|comcast|xfinity|verizon|at&t|t-mobile|water|electric|utility|internet)\b/.test(s)) {
+    return { category: 'Bills & Utilities', uncertain: false };
+  }
+  if (/\b(rent|apartment|hoa|mortgage|leasing)\b/.test(s)) {
+    return { category: 'Rent & Housing', uncertain: false };
+  }
+  if (/\b(airbnb|marriott|hilton|hyatt|delta|united|american airlines|southwest|flight|hotel|expedia)\b/.test(s)) {
+    return { category: 'Travel & Hotels', uncertain: false };
+  }
+  if (/\b(equinox|peloton|gym|fitness|cvs|walgreens|pharmacy|dental|medical|clinic)\b/.test(s)) {
+    return { category: 'Health & Fitness', uncertain: false };
+  }
+  if (/\b(amc|regal|ticketmaster|stubhub|steam|playstation|nintendo|cinema|concert)\b/.test(s)) {
+    return { category: 'Entertainment', uncertain: false };
+  }
+  if (/\b(udemy|coursera|tuition|university|textbook|book)\b/.test(s)) {
+    return { category: 'Education', uncertain: false };
+  }
+  if (/\b(sephora|ulta|barber|salon|spa)\b/.test(s)) {
+    return { category: 'Personal Care', uncertain: false };
+  }
+  if (/\b(amazon|amzn|shopify|ebay|etsy|apple store|best buy)\b/.test(s)) {
+    return { category: 'Shopping Online', uncertain: false };
+  }
+  if (/\b(target|walmart|nordstrom|uniqlo|nike|ikea)\b/.test(s)) {
+    return { category: 'Shopping & Retail', uncertain: false };
+  }
+  return { category: 'Other / Uncategorized', uncertain: true };
+}
+
+function normalizeIsoDate(rawDate: string): string {
+  const trimmed = rawDate.trim();
+  const isoMatch = trimmed.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
+  if (isoMatch) return isoMatch[1];
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+  return '2026-11-17';
+}
+
+function cleanSenderMerchant(fromHeader: string, subjectHeader: string): string {
+  const namePart = fromHeader.split('<')[0].replace(/["']/g, '').trim();
+  const cleaned = namePart
+    .replace(/\b(receipts?|orders?|billing|payments?|no-?reply|notifications?|auto-confirm|support|team)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[\s\-·|]+|[\s\-·|]+$/g, '')
+    .trim();
+  if (cleaned.length >= 2) return cleaned.slice(0, 80);
+
+  const domainMatch = fromHeader.match(/@([a-z0-9-]+)\./i);
+  if (domainMatch && domainMatch[1]) {
+    const dom = domainMatch[1];
+    return dom.charAt(0).toUpperCase() + dom.slice(1);
+  }
+  return (subjectHeader || 'Receipt Merchant').slice(0, 60);
+}
+
+function extractDollarAmountFromBlock(text: string): number | null {
+  const priorityPatterns = [
+    /(?:total(?:\s+charged|\s+paid|\s+amount)?|amount(?:\s+paid|\s+charged)?|grand\s+total|charged|payment\s+of)\s*[:\-]?\s*\$\s*(\d{1,6}(?:,\d{3})*(?:\.\d{2}))/i,
+    /\$\s*(\d{1,6}(?:,\d{3})*\.\d{2})\s*(?:usd|total|paid|charged)/i,
+  ];
+  for (const pat of priorityPatterns) {
+    const m = text.match(pat);
+    if (m && m[1]) {
+      const val = parseFloat(m[1].replace(/,/g, ''));
+      if (val > 0) return val;
+    }
+  }
+
+  const allAmounts = Array.from(text.matchAll(/\$\s*(\d{1,6}(?:,\d{3})*\.\d{2})/g))
+    .map((m) => parseFloat(m[1].replace(/,/g, '')))
+    .filter((n) => Number.isFinite(n) && n > 0 && n < 100000);
+
+  if (allAmounts.length === 0) return null;
+  return allAmounts[allAmounts.length - 1];
+}
+
+function extractTransactionsDeterministically(
+  rawText: string,
+  defaultSource: string,
+  existingTransactions: any[]
+): { extractedTransactions: any[]; summaryNote: string } {
+  const extracted: any[] = [];
+  const safeExisting = Array.isArray(existingTransactions) ? existingTransactions : [];
+
+  const findDuplicateId = (dateStr: string, amount: number): string => {
+    const targetTime = new Date(dateStr).getTime();
+    const match = safeExisting.find((tx: any) => {
+      const txAmt = Math.abs(Number(tx?.amount) || 0);
+      if (Math.abs(txAmt - amount) >= 0.01) return false;
+      const txTime = new Date(String(tx?.date || '')).getTime();
+      if (Number.isNaN(targetTime) || Number.isNaN(txTime)) return tx?.date === dateStr;
+      return Math.abs(targetTime - txTime) <= 2 * 86400 * 1000;
+    });
+    return match?.id ? String(match.id) : '';
+  };
+
+  if (rawText.includes('=== GMAIL MESSAGE')) {
+    const blocks = rawText.split(/=== GMAIL MESSAGE \d+[^=]*===/i).filter((b) => b.trim());
+    for (const block of blocks) {
+      const fromLine = (block.match(/^From:\s*(.+)$/im)?.[1] || '').trim();
+      const subjectLine = (block.match(/^Subject:\s*(.+)$/im)?.[1] || '').trim();
+      const dateLine = (block.match(/^Date:\s*(.+)$/im)?.[1] || '').trim();
+      const amount = extractDollarAmountFromBlock(block);
+      if (amount === null) continue;
+
+      const merchant = cleanSenderMerchant(fromLine, subjectLine);
+      const date = normalizeIsoDate(dateLine);
+      const isRefund = /\b(refund|refunded|credit issued|money back)\b/i.test(
+        `${subjectLine} ${block}`
+      );
+      const { category, uncertain } = inferCategoryFromText(`${merchant} ${subjectLine} ${block}`);
+      const matchedExistingId = findDuplicateId(date, amount);
+
+      extracted.push({
+        date,
+        merchant,
+        rawDescription: subjectLine || `Gmail Receipt · ${merchant}`,
+        amount,
+        paymentMethod: 'Gmail Digital Receipt',
+        category,
+        status: isRefund ? 'refunded' : 'posted',
+        transactionType: isRefund ? 'refund' : 'purchase',
+        source: 'Gmail',
+        matchedExistingId,
+        uncertainCategory: uncertain,
+        uncertaintyPrompt: uncertain
+          ? `Confirm spending category for "${merchant}" ($${amount.toFixed(2)})`
+          : '',
+        suggestedCategories: uncertain
+          ? ['Shopping Online', 'Subscriptions', 'Food & Restaurants']
+          : [],
+      });
+    }
+
+    return {
+      extractedTransactions: extracted,
+      summaryNote:
+        extracted.length > 0
+          ? `Extracted ${extracted.length} receipt transaction(s) from Gmail using local Windows parser.`
+          : 'Scanned Gmail messages, but none contained recognizable dollar receipt totals.',
+    };
+  }
+
+  // Fallback line/alert parser for Apple Pay alerts, .eml files, and pasted statements
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  for (const line of lines) {
+    const amt = extractDollarAmountFromBlock(line);
+    if (amt === null) continue;
+    const date = normalizeIsoDate(line);
+    const atMerchant =
+      line.match(/\bat\s+([A-Za-z0-9 *&'.\-/]{2,45}?)(?:\s*\(|\s*—|\s*-|$)/i)?.[1]?.trim() ||
+      line.slice(0, 40);
+    const { category, uncertain } = inferCategoryFromText(line);
+    const source = /apple pay/i.test(line) ? 'Apple Pay' : defaultSource || 'Uploaded Statement';
+    extracted.push({
+      date,
+      merchant: atMerchant,
+      rawDescription: line.slice(0, 180),
+      amount: amt,
+      paymentMethod: source === 'Apple Pay' ? 'Apple Pay' : 'Card / Statement',
+      category,
+      status: 'posted',
+      transactionType: /\brefund\b/i.test(line) ? 'refund' : 'purchase',
+      source,
+      matchedExistingId: findDuplicateId(date, amt),
+      uncertainCategory: uncertain,
+      uncertaintyPrompt: uncertain ? `Confirm category for "${atMerchant}"` : '',
+      suggestedCategories: uncertain ? ['Shopping & Retail', 'Food & Restaurants'] : [],
+    });
+  }
+
+  return {
+    extractedTransactions: extracted,
+    summaryNote:
+      extracted.length > 0
+        ? `Extracted ${extracted.length} transaction(s) via built-in local parser.`
+        : 'No dollar transactions detected in the provided text.',
+  };
 }
 
 interface CachedLogoEntry {
@@ -251,6 +462,12 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '30mb' }));
+
+  // Allow Google Sign-In / Gmail OAuth popups to communicate cleanly back to Edge/Chrome --app windows on Windows
+  app.use((_req, res, next) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+    next();
+  });
 
   // Local Windows Disk Vault: Read saved vault from PC disk (data/local-ledger-vault.json)
   app.get('/api/local-vault', (_req, res) => {
@@ -346,56 +563,6 @@ async function startServer() {
     }
   });
 
-  // Simulate an incoming Apple Pay notification for testing automated local ingestion
-  app.post('/api/apple-pay/simulate', (_req, res) => {
-    const sample = SAMPLE_APPLE_PAY_ALERTS[sampleAlertCursor % SAMPLE_APPLE_PAY_ALERTS.length];
-    sampleAlertCursor += 1;
-    const queue = readApplePayQueue();
-    const entry: QueuedApplePayAlert = {
-      id: `ap-sim-${Date.now()}`,
-      receivedAt: new Date().toISOString(),
-      rawNotification: sample,
-    };
-    queue.push(entry);
-    writeApplePayQueue(queue);
-    return res.json({
-      queued: true,
-      entry,
-      pendingQueueCount: queue.length,
-    });
-  });
-
-  // Drop a sample local .eml receipt into data/inbox/ to test local folder auto-pull
-  app.post('/api/local-inbox/drop-sample', (_req, res) => {
-    try {
-      ensureLocalDataDirs();
-      const fileName = `receipt-${Date.now()}.eml`;
-      const filePath = path.join(INBOX_DIR, fileName);
-      const emlContent = [
-        'From: receipts@wholefoods.com',
-        'Subject: Your Whole Foods Market Receipt - Nov 17, 2026',
-        'Date: Tue, 17 Nov 2026 12:15:00 -0800',
-        '',
-        'Thank you for shopping at Whole Foods Market SoMa!',
-        'Date: 2026-11-17',
-        'Organic Produce & Pantry Items: $58.10',
-        'Tax: $4.30',
-        'Total Charged: $62.40',
-        'Payment Method: Apple Pay · Amex Gold ••1094',
-      ].join('\n');
-      fs.writeFileSync(filePath, emlContent, 'utf-8');
-      return res.json({
-        dropped: true,
-        fileName,
-        filePath,
-      });
-    } catch (error: any) {
-      return res.status(500).json({
-        error: error?.message || 'Failed to create sample receipt in data/inbox/.',
-      });
-    }
-  });
-
   // Status check for pending Apple Pay alerts & local watched inbox files
   app.get('/api/auto-pull/status', (_req, res) => {
     try {
@@ -476,6 +643,26 @@ async function startServer() {
           textBlocks.push(`=== ATTACHED LOCAL INBOX RECEIPT/DOCUMENT: ${fileEntry.name} ===`);
           processedFilesToMove.push(fileEntry.name);
         }
+      }
+
+      if (!hasConfiguredGeminiApiKey() && inlineMediaParts.length === 0) {
+        const localParsed = extractTransactionsDeterministically(
+          textBlocks.join('\n\n'),
+          'Apple Pay',
+          existingTransactions
+        );
+        if (queue.length > 0) writeApplePayQueue([]);
+        for (const fileName of processedFilesToMove) {
+          const src = path.join(INBOX_DIR, fileName);
+          const dest = path.join(PROCESSED_INBOX_DIR, `${Date.now()}-${fileName}`);
+          if (fs.existsSync(src)) fs.renameSync(src, dest);
+        }
+        return res.json({
+          pulledCount: localParsed.extractedTransactions.length,
+          extractedTransactions: localParsed.extractedTransactions,
+          summaryNote: localParsed.summaryNote,
+          sourcesProcessed: queue.length + processedFilesToMove.length,
+        });
       }
 
       const ai = getGeminiClient();
@@ -659,6 +846,19 @@ ${textBlocks.join('\n\n')}`;
         });
       }
 
+      if (!hasConfiguredGeminiApiKey() && validAttachments.length === 0) {
+        const localParsed = extractTransactionsDeterministically(
+          rawText,
+          sourceType || 'Gmail',
+          existingTransactions
+        );
+        return res.json({
+          ocrTranscribedText: '',
+          extractedTransactions: localParsed.extractedTransactions,
+          summaryNote: localParsed.summaryNote,
+        });
+      }
+
       const ai = getGeminiClient();
 
       const existingCompact = existingTransactions.slice(0, 45).map((t: any) => ({
@@ -804,8 +1004,21 @@ ${rawText}
       return res.json(parsed);
     } catch (error: any) {
       console.error('Error in /api/finance/parse-source:', error);
+      const { rawText = '', sourceType = 'Gmail', existingTransactions = [] } = req.body || {};
+      if (typeof rawText === 'string' && rawText.trim().length > 0) {
+        const fallbackParsed = extractTransactionsDeterministically(
+          rawText,
+          sourceType,
+          existingTransactions
+        );
+        return res.json({
+          ocrTranscribedText: '',
+          extractedTransactions: fallbackParsed.extractedTransactions,
+          summaryNote: fallbackParsed.summaryNote,
+        });
+      }
       return res.status(500).json({
-        error: error?.message || 'Failed to parse financial source or receipt OCR with Gemini API.',
+        error: error?.message || 'Failed to parse financial source or receipt OCR.',
       });
     }
   });
@@ -814,6 +1027,41 @@ ${rawText}
   app.post('/api/finance/audit-insights', async (req, res) => {
     try {
       const { summaryMetrics, categoryBreakdown, subscriptions, recentTransactions, userQuestion } = req.body;
+
+      if (!hasConfiguredGeminiApiKey()) {
+        const totalSpent = Number(summaryMetrics?.totalSpent || 0);
+        const topCat = Array.isArray(categoryBreakdown) && categoryBreakdown[0]
+          ? `${categoryBreakdown[0].category} ($${Number(categoryBreakdown[0].amount || 0).toFixed(2)})`
+          : 'None yet';
+        const activeSubTotal = Array.isArray(subscriptions)
+          ? subscriptions
+              .filter((s: any) => s?.active !== false)
+              .reduce((acc: number, s: any) => acc + Number(s?.monthlyEquivalent || s?.amount || 0), 0)
+          : 0;
+        return res.json({
+          executiveHeadline: `Verified monthly spend is $${totalSpent.toFixed(2)}, led by ${topCat}.`,
+          directAnswer: userQuestion
+            ? `Based on your local ledger for "${userQuestion}": total verified monthly spend is $${totalSpent.toFixed(2)}, top category is ${topCat}, and active recurring subscriptions total $${activeSubTotal.toFixed(2)}/mo.`
+            : `Your verified ledger totals $${totalSpent.toFixed(2)} this month across ${(recentTransactions || []).length} recent records, with $${activeSubTotal.toFixed(2)}/mo in active subscriptions.`,
+          findings: [
+            {
+              type: 'Top Category',
+              title: `Primary Spend Driver: ${topCat}`,
+              detail: 'Calculated directly from verified non-transfer purchase transactions in your ledger.',
+              estimatedMonthlyImpact: Number(categoryBreakdown?.[0]?.amount || 0),
+              severity: 'info',
+            },
+            {
+              type: 'Savings Opportunity',
+              title: `Active Subscriptions: $${activeSubTotal.toFixed(2)}/mo`,
+              detail: 'Review recurring bills in Transactions & Subscriptions to redirect unused services into Savings Goals.',
+              estimatedMonthlyImpact: activeSubTotal,
+              severity: activeSubTotal > 100 ? 'medium' : 'info',
+            },
+          ],
+        });
+      }
+
       const ai = getGeminiClient();
 
       const prompt = `You are a Personal AI Financial Tracking Assistant analyzing the user's actual ledger data.
@@ -888,7 +1136,7 @@ ${userQuestion ? `User specific question: "${userQuestion}"` : 'Provide a compre
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader(
         'Content-Disposition',
-        'attachment; filename="LedgerPulse-Windows-v1.0.0.zip"'
+        'attachment; filename="LedgerPulse-Windows-v1.0.2.zip"'
       );
 
       if (fs.existsSync(PREBUILT_WINDOWS_ZIP_PATH)) {

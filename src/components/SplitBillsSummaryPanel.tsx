@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
   Check,
-  Layers,
   Plus,
   RotateCcw,
   Search,
@@ -27,7 +26,6 @@ interface SplitBillsSummaryPanelProps {
     newItems: Transaction[],
     mergedUpdates: Array<{ existingId: string; newSource: DataSource; rawDescriptor: string }>
   ) => void;
-  onLoadStarterDemo?: () => void;
 }
 
 export const SplitBillsSummaryPanel: React.FC<SplitBillsSummaryPanelProps> = ({
@@ -36,7 +34,6 @@ export const SplitBillsSummaryPanel: React.FC<SplitBillsSummaryPanelProps> = ({
   onSettleAllForFriend,
   onOpenSplitModal,
   onQuickCommitTransaction,
-  onLoadStarterDemo,
 }) => {
   const [filterMode, setFilterMode] = useState<'all' | 'owed' | 'settled'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -365,23 +362,6 @@ export const SplitBillsSummaryPanel: React.FC<SplitBillsSummaryPanelProps> = ({
               <div className="font-semibold text-sm text-slate-900 dark:text-slate-100">
                 Log New Split Purchase
               </div>
-              <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-                <span>Quick example:</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMerchant('Sightglass Coffee');
-                    setTotalPaidInput('20.00');
-                    setCategory('Coffee & Drinks');
-                    setFriendName('Alex');
-                    setFriendAmountInput('10.00');
-                    setItemNote("Friend's drink");
-                  }}
-                  className="font-semibold text-amber-700 dark:text-amber-400 hover:underline"
-                >
-                  Coffee ($20 paid · $10 friend&apos;s drink)
-                </button>
-              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -678,16 +658,6 @@ export const SplitBillsSummaryPanel: React.FC<SplitBillsSummaryPanelProps> = ({
                 >
                   <Split className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                   <span>Split Existing Purchase</span>
-                </button>
-              )}
-              {transactions.length === 0 && onLoadStarterDemo && (
-                <button
-                  type="button"
-                  onClick={onLoadStarterDemo}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors"
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>Load Demo Data (Includes $20 Coffee Split)</span>
                 </button>
               )}
             </div>
