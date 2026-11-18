@@ -103,6 +103,67 @@ export const FinancialReportsSection: React.FC<FinancialReportsSectionProps> = (
     };
   }, [novTransactions, selectedWeekRange]);
 
+  const savingsOpportunities = useMemo(() => {
+    const items: Array<{
+      id: string;
+      title: string;
+      detail: string;
+      monthlyImpact: number;
+      oneTime?: boolean;
+    }> = [];
+
+    const flaggedSubs = subscriptions.filter(
+      (s) =>
+        s.status !== 'Canceled' &&
+        (s.status === 'Unused / Review' ||
+          s.status === 'Price Increased' ||
+          (s.inactiveMonths ?? 0) > 3)
+    );
+    flaggedSubs.forEach((sub) => {
+      const monthlyEq = sub.frequency === 'Annual subscription' ? sub.amount / 12 : sub.amount;
+      items.push({
+        id: `opp-sub-${sub.id}`,
+        title: `Review or cancel ${sub.merchant}`,
+        detail:
+          sub.usageNote ||
+          ((sub.inactiveMonths ?? 0) > 3
+            ? `Inactive for ${sub.inactiveMonths?.toFixed(1)} months.`
+            : `Flagged as ${sub.status}.`),
+        monthlyImpact: monthlyEq,
+      });
+    });
+
+    const anomalyTxs = novTransactions.filter((t) => Boolean(t.anomalyNote));
+    anomalyTxs.forEach((tx) => {
+      items.push({
+        id: `opp-tx-${tx.id}`,
+        title: `Verify flagged charge at ${tx.merchant}`,
+        detail: tx.anomalyNote || `Review ${tx.status} charge recorded on ${tx.date}.`,
+        monthlyImpact: tx.amount,
+        oneTime: true,
+      });
+    });
+
+    const overBudgetCats = categoryBreakdown.filter((c) => {
+      const limit = categoryBudgets[c.category] ?? 0;
+      return limit > 0 && c.amount > limit;
+    });
+    overBudgetCats.slice(0, 2).forEach((c) => {
+      const overage = c.amount - (categoryBudgets[c.category] ?? 0);
+      items.push({
+        id: `opp-cat-${c.category}`,
+        title: `Trim ${c.category} overage`,
+        detail: `Currently +${formatCurrency(overage)} above your ${formatCurrency(
+          categoryBudgets[c.category] ?? 0
+        )} monthly target.`,
+        monthlyImpact: overage,
+      });
+    });
+
+    const totalMonthlyImpact = items.reduce((sum, i) => sum + (i.oneTime ? 0 : i.monthlyImpact), 0);
+    return { items, totalMonthlyImpact };
+  }, [subscriptions, novTransactions, categoryBreakdown, categoryBudgets]);
+
   return (
     <section className="space-y-6">
       {/* Report Cadence Switcher Header */}
@@ -438,7 +499,7 @@ export const FinancialReportsSection: React.FC<FinancialReportsSectionProps> = (
                 Recurring expenses (incl. rent)
               </div>
               <div className="mt-1.5 text-xl font-semibold font-mono tabular-nums text-slate-900 dark:text-slate-100">
-                {formatCurrency(summaryMetrics.totalSubscriptionsMonthly + 2450)}
+                {formatCurrency(summaryMetrics.totalRecurringIncludingRentMonthly)}
               </div>
               <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
                 {formatCurrency(summaryMetrics.totalSubscriptionsMonthly)} non-rent recurring
@@ -600,82 +661,75 @@ export const FinancialReportsSection: React.FC<FinancialReportsSectionProps> = (
                   </p>
                 </div>
                 <div className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
-                  {topMerchants.map((m, idx) => (
-                    <div
-                      key={m.merchant}
-                      className="px-6 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="font-mono text-slate-400 dark:text-slate-500 w-5 shrink-0">
-                          {String(idx + 1).padStart(2, '0')}.
-                        </span>
-                        <MerchantLogo merchant={m.merchant} size="sm" />
-                        <div className="min-w-0">
-                          <div className="font-medium text-slate-900 dark:text-slate-100 truncate">
-                            {m.merchant}
-                          </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                            {m.category} · {m.transactionCount}{' '}
-                            {m.transactionCount === 1 ? 'tx' : 'txs'}
+                  {topMerchants.length === 0 ? (
+                    <div className="px-6 py-6 text-slate-500 dark:text-slate-400">
+                      No merchant purchases recorded for November 2026 yet.
+                    </div>
+                  ) : (
+                    topMerchants.map((m, idx) => (
+                      <div
+                        key={m.merchant}
+                        className="px-6 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="font-mono text-slate-400 dark:text-slate-500 w-5 shrink-0">
+                            {String(idx + 1).padStart(2, '0')}.
+                          </span>
+                          <MerchantLogo merchant={m.merchant} size="sm" />
+                          <div className="min-w-0">
+                            <div className="font-medium text-slate-900 dark:text-slate-100 truncate">
+                              {m.merchant}
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                              {m.category} · {m.transactionCount}{' '}
+                              {m.transactionCount === 1 ? 'tx' : 'txs'}
+                            </div>
                           </div>
                         </div>
+                        <div className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100 shrink-0">
+                          {formatCurrency(m.totalSpent)}
+                        </div>
                       </div>
-                      <div className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100 shrink-0">
-                        {formatCurrency(m.totalSpent)}
-                      </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
 
-              {/* Potential Savings Opportunities */}
+              {/* Potential Savings Opportunities (100% Live Data-Driven) */}
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                     Potential Monthly Savings Opportunities
                   </h3>
                   <span className="font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                    Save $148.44/mo ($1,781/yr)
+                    {savingsOpportunities.totalMonthlyImpact > 0
+                      ? `Save ${formatCurrency(savingsOpportunities.totalMonthlyImpact)}/mo (${formatCurrency(
+                          savingsOpportunities.totalMonthlyImpact * 12
+                        )}/yr)`
+                      : '$0.00 flagged'}
                   </span>
                 </div>
-                <div className="divide-y divide-slate-200 dark:divide-slate-800 text-xs text-slate-600 dark:text-slate-400">
-                  <div className="py-2.5 flex items-start justify-between gap-3">
-                    <span>
-                      <strong className="text-slate-900 dark:text-slate-100">
-                        Cancel unused Adobe CC & completed Coursera
-                      </strong>
-                      <br />
-                      Zero usage on Adobe CC in 65 days; Coursera specialization already finished.
-                    </span>
-                    <span className="font-mono text-emerald-700 dark:text-emerald-400 font-medium shrink-0">
-                      +$108.99/mo
-                    </span>
+                {savingsOpportunities.items.length === 0 ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    No unused subscriptions, duplicate holds, or category budget overages detected in your current ledger.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-slate-200 dark:divide-slate-800 text-xs text-slate-600 dark:text-slate-400">
+                    {savingsOpportunities.items.map((opp) => (
+                      <div key={opp.id} className="py-2.5 flex items-start justify-between gap-3">
+                        <span>
+                          <strong className="text-slate-900 dark:text-slate-100">{opp.title}</strong>
+                          <br />
+                          {opp.detail}
+                        </span>
+                        <span className="font-mono text-emerald-700 dark:text-emerald-400 font-medium shrink-0">
+                          +{formatCurrency(opp.monthlyImpact)}
+                          {opp.oneTime ? '' : '/mo'}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                  <div className="py-2.5 flex items-start justify-between gap-3">
-                    <span>
-                      <strong className="text-slate-900 dark:text-slate-100">
-                        Remove duplicate Sweetgreen authorization
-                      </strong>
-                      <br />
-                      Ensure pending $19.45 second charge from Nov 14 drops off Amex Gold.
-                    </span>
-                    <span className="font-mono text-emerald-700 dark:text-emerald-400 font-medium shrink-0">
-                      +$19.45
-                    </span>
-                  </div>
-                  <div className="py-2.5 flex items-start justify-between gap-3">
-                    <span>
-                      <strong className="text-slate-900 dark:text-slate-100">
-                        Bundle Apple iCloud+ & streaming tier
-                      </strong>
-                      <br />
-                      Downgrade Netflix 4K to Standard or bundle family cloud storage.
-                    </span>
-                    <span className="font-mono text-emerald-700 dark:text-emerald-400 font-medium shrink-0">
-                      +$20.00/mo
-                    </span>
-                  </div>
-                </div>
+                )}
               </div>
             </div>
           </div>

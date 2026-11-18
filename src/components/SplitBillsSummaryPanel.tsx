@@ -45,7 +45,7 @@ export const SplitBillsSummaryPanel: React.FC<SplitBillsSummaryPanelProps> = ({
   const [totalPaidInput, setTotalPaidInput] = useState('');
   const [category, setCategory] = useState<SpendingCategory>('Coffee & Drinks');
   const [date, setDate] = useState('2026-11-17');
-  const [paymentMethod, setPaymentMethod] = useState('Apple Pay · Chase Sapphire ••4821');
+  const [paymentMethod, setPaymentMethod] = useState('Apple Pay');
   const [friendName, setFriendName] = useState('');
   const [friendAmountInput, setFriendAmountInput] = useState('');
   const [itemNote, setItemNote] = useState('');
@@ -469,11 +469,11 @@ export const SplitBillsSummaryPanel: React.FC<SplitBillsSummaryPanelProps> = ({
                   onChange={(e) => setPaymentMethod(e.target.value)}
                   className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
                 >
-                  <option value="Apple Pay · Chase Sapphire ••4821">Apple Pay ••4821</option>
-                  <option value="Chase Sapphire ••4821">Chase Sapphire ••4821</option>
-                  <option value="Amex Gold ••1094">Amex Gold ••1094</option>
+                  <option value="Apple Pay">Apple Pay</option>
+                  <option value="Wise">Wise</option>
+                  <option value="Credit Card">Credit Card</option>
+                  <option value="Debit / Checking">Debit / Checking</option>
                   <option value="Cash (Physical Currency)">Cash</option>
-                  <option value="Debit / Checking ••8830">Debit ••8830</option>
                 </select>
               </div>
 

@@ -31,6 +31,8 @@ import {
 import {
   ensureCloudLedgerWorkspace,
   initWorkspaceAndCloudAuth,
+  isFalsePositiveGmailSpamRecord,
+  isLegacyDemoRecordId,
   sanitizeDocId,
   signInWithGoogleAndGmail,
   signOutFromCloud,
@@ -92,8 +94,13 @@ function loadPersistedState<T>(key: string, fallback: T): T {
 
 function stripLegacyDemoRecords<T extends { id?: string }>(items: unknown): T[] {
   if (!Array.isArray(items)) return [];
-  return (items as T[]).filter(
-    (item) => typeof item?.id !== 'string' || !item.id.startsWith('demo-')
+  return (items as T[]).filter((item) => !isLegacyDemoRecordId(item?.id));
+}
+
+function sanitizeLoadedTransactions(items: unknown): Transaction[] {
+  if (!Array.isArray(items)) return [];
+  return (items as Transaction[]).filter(
+    (tx) => !isLegacyDemoRecordId(tx?.id) && !isFalsePositiveGmailSpamRecord(tx)
   );
 }
 
@@ -113,7 +120,7 @@ export default function App() {
 
   // Local-first + real-time Cloud Ledger state
   const [transactions, setTransactions] = useState<Transaction[]>(() =>
-    stripLegacyDemoRecords<Transaction>(loadPersistedState(STORAGE_KEYS.transactions, []))
+    sanitizeLoadedTransactions(loadPersistedState(STORAGE_KEYS.transactions, []))
   );
   const [subscriptions, setSubscriptions] = useState<SubscriptionItem[]>(() =>
     stripLegacyDemoRecords<SubscriptionItem>(loadPersistedState(STORAGE_KEYS.subscriptions, []))
@@ -136,6 +143,9 @@ export default function App() {
   const [toastBanner, setToastBanner] = useState<string | null>(null);
   const [lastDeletedBatch, setLastDeletedBatch] = useState<Transaction[] | null>(null);
   const [lastDeletedGoal, setLastDeletedGoal] = useState<SavingsGoal | null>(null);
+  const [lastDeletedSubscription, setLastDeletedSubscription] = useState<SubscriptionItem | null>(
+    null
+  );
   const [confirmResetVault, setConfirmResetVault] = useState(false);
 
   // Google Cloud Sync (Phone + Computer) & Gmail Auth State
@@ -352,7 +362,7 @@ export default function App() {
           data.vault &&
           Array.isArray(data.vault.transactions)
         ) {
-          setTransactions(stripLegacyDemoRecords<Transaction>(data.vault.transactions));
+          setTransactions(sanitizeLoadedTransactions(data.vault.transactions));
           if (Array.isArray(data.vault.subscriptions)) {
             setSubscriptions(stripLegacyDemoRecords<SubscriptionItem>(data.vault.subscriptions));
           }
@@ -442,19 +452,21 @@ export default function App() {
   };
 
   const handleSignInGoogle = useCallback(
-    async (forceGmailConsent = false): Promise<boolean> => {
+    async (requestGmailScope = false): Promise<boolean> => {
       setIsSigningIn(true);
       setAuthDiagnosticError(null);
       try {
-        const { user, accessToken } = await signInWithGoogleAndGmail(forceGmailConsent);
+        const { user, accessToken } = await signInWithGoogleAndGmail(requestGmailScope);
         setCloudUser(user);
-        setHasGmailToken(Boolean(accessToken));
+        if (requestGmailScope) {
+          setHasGmailToken(Boolean(accessToken));
+        }
         showToast(
-          accessToken
-            ? `Signed in as ${user.email || 'Google User'} — Phone & Windows sync and Gmail receipt scanning ready.`
-            : `Signed in as ${user.email || 'Google User'}. Click "Connect & Scan Gmail" and check the Gmail permission box to scan receipts.`
+          requestGmailScope && accessToken
+            ? `Connected Gmail receipts for ${user.email || 'Google User'} — scanning inbox.`
+            : `Signed in as ${user.email || 'Google User'} — private cloud sync active across phone & computer.`
         );
-        return Boolean(accessToken);
+        return requestGmailScope ? Boolean(accessToken) : true;
       } catch (err: any) {
         const code = String(err?.code || '');
         const msg = String(err?.message || '');
@@ -626,6 +638,43 @@ export default function App() {
     }
     showToast(`Updated transaction status to ${status}.`);
   };
+
+  const handleUpdateTransactionFields = useCallback(
+    (
+      txId: string,
+      patch: Partial<
+        Pick<
+          Transaction,
+          | 'transactionType'
+          | 'amount'
+          | 'category'
+          | 'rawDescription'
+          | 'uncertainCategory'
+          | 'uncertaintyReason'
+        >
+      >,
+      toastMessage?: string
+    ) => {
+      const target = transactionsRef.current.find((t) => t.id === txId);
+      if (!target) return;
+
+      const updatedItem: Transaction = {
+        ...target,
+        ...patch,
+      };
+
+      setTransactions((prev) => prev.map((tx) => (tx.id === txId ? updatedItem : tx)));
+
+      if (cloudUser?.uid) {
+        void syncUpsertTransactionsToCloud(cloudUser.uid, [updatedItem], cloudTxIdsRef.current);
+      }
+
+      if (toastMessage) {
+        showToast(toastMessage);
+      }
+    },
+    [cloudUser?.uid, showToast]
+  );
 
   const handleSaveTransactionSplit = useCallback(
     (txId: string, splitBill: BillSplitDetails | undefined) => {
@@ -911,6 +960,69 @@ export default function App() {
     );
   };
 
+  const handleAddSubscription = useCallback(
+    (newSub: Omit<SubscriptionItem, 'id'>) => {
+      const created: SubscriptionItem = {
+        ...newSub,
+        id: `sub-${Date.now()}`,
+      };
+      setSubscriptions((prev) => [created, ...prev]);
+      if (cloudUser?.uid) {
+        void syncUpsertSubscriptionsToCloud(cloudUser.uid, [created], cloudSubIdsRef.current);
+      }
+      showToast(
+        `Added recurring payment "${created.merchant}" (${formatCurrency(created.amount)} · ${
+          created.frequency
+        }).`
+      );
+    },
+    [cloudUser?.uid, showToast]
+  );
+
+  const handleDeleteSubscription = useCallback(
+    (subId: string) => {
+      const target = subscriptionsRef.current.find((s) => s.id === subId);
+      if (target) {
+        setLastDeletedSubscription(target);
+      }
+      setSubscriptions((prev) => prev.filter((s) => s.id !== subId));
+      cloudSubIdsRef.current.delete(sanitizeDocId(subId, 'sub'));
+      if (cloudUser?.uid) {
+        void syncDeleteSubscriptionsFromCloud(cloudUser.uid, [subId]);
+      }
+      showToast(
+        target
+          ? `Removed recurring payment "${target.merchant}" (${formatCurrency(
+              target.amount
+            )}). Click Undo to restore.`
+          : 'Removed recurring payment.'
+      );
+    },
+    [cloudUser?.uid, showToast]
+  );
+
+  const handleUndoDeleteSubscription = useCallback(() => {
+    if (!lastDeletedSubscription) return;
+    const subToRestore = { ...lastDeletedSubscription };
+    const alreadyExists = subscriptionsRef.current.some((s) => s.id === subToRestore.id);
+    if (!alreadyExists) {
+      setSubscriptions((prev) => [subToRestore, ...prev]);
+      if (cloudUser?.uid) {
+        void syncUpsertSubscriptionsToCloud(
+          cloudUser.uid,
+          [subToRestore],
+          cloudSubIdsRef.current
+        );
+      }
+    }
+    setLastDeletedSubscription(null);
+    showToast(
+      `Restored recurring payment "${subToRestore.merchant}" (${formatCurrency(
+        subToRestore.amount
+      )}).`
+    );
+  }, [cloudUser?.uid, lastDeletedSubscription, showToast]);
+
   const handleContributeToGoal = (goalId: string, amount: number) => {
     let updatedGoal: SavingsGoal | null = null;
     setSavingsGoals((prev) =>
@@ -1193,37 +1305,35 @@ export default function App() {
       'PrimarySource',
       'MergedSourcesCount',
     ];
-    const rows = transactions
-      .filter((t) => t.monthKey === '2026-11')
-      .map((t) => {
-        const split = getTransactionSplitSummary(t);
-        return [
-          t.id,
-          t.date,
-          `"${t.merchant.replace(/"/g, '""')}"`,
-          t.amount.toFixed(2),
-          split.personalShare.toFixed(2),
-          split.owedUnpaid.toFixed(2),
-          t.transactionType,
-          t.status,
-          `"${t.category}"`,
-          `"${t.paymentMethod}"`,
-          t.source,
-          t.mergedSources?.length || 1,
-        ];
-      });
+    const rows = transactions.map((t) => {
+      const split = getTransactionSplitSummary(t);
+      return [
+        t.id,
+        t.date,
+        `"${t.merchant.replace(/"/g, '""')}"`,
+        t.amount.toFixed(2),
+        split.personalShare.toFixed(2),
+        split.owedUnpaid.toFixed(2),
+        t.transactionType,
+        t.status,
+        `"${t.category}"`,
+        `"${t.paymentMethod}"`,
+        t.source,
+        t.mergedSources?.length || 1,
+      ];
+    });
 
     const csvContent = [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', 'ledgerpulse_reconciled_nov_2026.csv');
+    link.setAttribute('download', 'ledgerpulse_reconciled_ledger.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    showToast('Exported deduplicated November 2026 ledger to CSV.');
+    showToast('Exported deduplicated ledger to CSV.');
   };
 
   const uncertainCount = useMemo(
@@ -1307,6 +1417,15 @@ export default function App() {
           >
             <span>{toastBanner}</span>
             <div className="flex items-center gap-3 shrink-0">
+              {lastDeletedSubscription && (
+                <button
+                  type="button"
+                  onClick={handleUndoDeleteSubscription}
+                  className="px-2.5 py-1 font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md transition-colors whitespace-nowrap"
+                >
+                  Undo Remove Subscription
+                </button>
+              )}
               {lastDeletedGoal && (
                 <button
                   type="button"
@@ -1646,6 +1765,7 @@ export default function App() {
                   transactions={transactions}
                   onUpdateCategory={handleUpdateCategory}
                   onUpdateStatus={handleUpdateStatus}
+                  onUpdateTransactionFields={handleUpdateTransactionFields}
                   onDeleteTransactions={handleDeleteTransactions}
                   onOpenSplitModal={(tx) => setSplitModalTxId(tx.id)}
                   onToggleSplitParticipantSettled={handleToggleSplitParticipantSettled}
@@ -1662,6 +1782,11 @@ export default function App() {
                 onToggleCancelSubscription={handleToggleCancelSubscription}
                 onDismissAlert={handleDismissSubscriptionAlert}
                 onCancelAndRedirectToGoal={handleCancelAndRedirectToGoal}
+                onAddSubscription={handleAddSubscription}
+                onDeleteSubscription={handleDeleteSubscription}
+                lastDeletedSubscription={lastDeletedSubscription}
+                onUndoDeleteSubscription={handleUndoDeleteSubscription}
+                onDismissUndoSubscription={() => setLastDeletedSubscription(null)}
               />
             )}
           </div>
@@ -1715,14 +1840,6 @@ export default function App() {
             LedgerPulse · Phone &amp; Windows / Mac Cloud Sync + Local Vault Backup
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <a
-              href="/api/release/windows.zip"
-              download="LedgerPulse-Windows-v1.0.2.zip"
-              className="hover:text-slate-900 dark:hover:text-slate-100 transition-colors font-medium"
-            >
-              Windows Release (.zip)
-            </a>
-            <span aria-hidden="true">·</span>
             <button
               type="button"
               onClick={() => openIngestModal('csv_import')}

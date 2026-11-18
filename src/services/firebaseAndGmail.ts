@@ -42,11 +42,42 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
-// Google Workspace OAuth scopes (Least-privilege read-only Gmail receipt access)
+// Google Workspace OAuth scopes (Least-privilege read-only Gmail receipt access — requested only when user connects Gmail)
 export const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
-const googleProvider = new GoogleAuthProvider();
-SCOPES.forEach((scope) => googleProvider.addScope(scope));
+export function isLegacyDemoRecordId(id: unknown): boolean {
+  if (typeof id !== 'string') return false;
+  const trimmed = id.trim();
+  return /^(?:demo-|tx-demo-|sub-demo-|goal-demo-|(?:tx|sub|goal)-\d{1,4}$)/i.test(trimmed);
+}
+
+export function isFalsePositiveGmailSpamRecord(tx: {
+  id?: unknown;
+  source?: unknown;
+  merchant?: unknown;
+  rawDescription?: unknown;
+}): boolean {
+  if (tx?.source !== 'Gmail') return false;
+  const merchant = String(tx?.merchant || '').trim();
+  const desc = String(tx?.rawDescription || '').trim();
+  if (/^handshake(\s+ai)?$/i.test(merchant)) return true;
+  // Earlier broken Fwd: extractions that set forwarder's own name as merchant or misread Total Savings
+  if (/^makawan\s+pamornsut$/i.test(merchant) && /^fwd:/i.test(desc)) return true;
+  if (
+    /\b(linkedin|indeed|glassdoor|ziprecruiter)\b/i.test(merchant) &&
+    /\b(applicant|job|hiring|career|role)\b/i.test(desc)
+  ) {
+    return true;
+  }
+  if (
+    /(?:\bsees you as a top applicant\b|\bget paid \$\d+|\bspooky season is here\b|\bjoin our challenge\b|\bget \$\d+(?:\.\d{1,2})?\s*off\b|\b\d+%\s*off your (?:cart|order|next|purchase)\b|\boff your order of \$\d+|\bhow was your order\b|\brate your (?:order|experience)\b|\byou['’]?re eligible for \d+\s*months\b|\bcongratulations!\s*you['’]?re eligible\b|\bstarting at \$\d+(?:\.\d{2})?\s*lb\b|\bwant free tickets\b)/i.test(
+      desc
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
 
 // In-memory OAuth access token cache ONLY (never persisted to localStorage or sessionStorage)
 let isSigningIn = false;
@@ -168,7 +199,7 @@ export function initWorkspaceAndCloudAuth(
 }
 
 export async function signInWithGoogleAndGmail(
-  forceGmailConsent = false
+  requestGmailScope = false
 ): Promise<{
   user: User;
   accessToken: string | null;
@@ -182,25 +213,26 @@ export async function signInWithGoogleAndGmail(
   try {
     isSigningIn = true;
     const provider = new GoogleAuthProvider();
-    SCOPES.forEach((scope) => provider.addScope(scope));
-    provider.setCustomParameters(
-      forceGmailConsent
-        ? {
-            prompt: 'consent select_account',
-            include_granted_scopes: 'true',
-          }
-        : {
-            prompt: 'select_account',
-            include_granted_scopes: 'true',
-          }
-    );
+    if (requestGmailScope) {
+      SCOPES.forEach((scope) => provider.addScope(scope));
+      provider.setCustomParameters({
+        prompt: 'consent select_account',
+        include_granted_scopes: 'true',
+      });
+    } else {
+      provider.setCustomParameters({
+        prompt: 'select_account',
+      });
+    }
 
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    cachedAccessToken = credential?.accessToken ?? null;
+    if (requestGmailScope) {
+      cachedAccessToken = credential?.accessToken ?? null;
+    }
     return {
       user: result.user,
-      accessToken: cachedAccessToken,
+      accessToken: requestGmailScope ? cachedAccessToken : null,
     };
   } finally {
     isSigningIn = false;
@@ -696,6 +728,10 @@ export function subscribeToCloudLedger(
       const ids = new Set<string>();
       snap.forEach((docSnap) => {
         const data = docSnap.data();
+        if (isLegacyDemoRecordId(docSnap.id) || isFalsePositiveGmailSpamRecord(data)) {
+          void deleteDoc(docSnap.ref).catch(() => {});
+          return;
+        }
         if (data.archived) return;
         ids.add(docSnap.id);
         items.push(deserializeTransactionDoc(docSnap.id, data));
@@ -717,6 +753,10 @@ export function subscribeToCloudLedger(
       const items: SubscriptionItem[] = [];
       const ids = new Set<string>();
       snap.forEach((docSnap) => {
+        if (isLegacyDemoRecordId(docSnap.id)) {
+          void deleteDoc(docSnap.ref).catch(() => {});
+          return;
+        }
         const data = docSnap.data();
         if (data.archived) return;
         ids.add(docSnap.id);
@@ -736,6 +776,10 @@ export function subscribeToCloudLedger(
       const items: SavingsGoal[] = [];
       const ids = new Set<string>();
       snap.forEach((docSnap) => {
+        if (isLegacyDemoRecordId(docSnap.id)) {
+          void deleteDoc(docSnap.ref).catch(() => {});
+          return;
+        }
         const data = docSnap.data();
         if (data.archived) return;
         ids.add(docSnap.id);
@@ -961,40 +1005,105 @@ function stripHtmlTags(html: string): string {
   return html
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<\/(tr|p|div|li|h[1-6]|br|table|section)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
-    .replace(/&#39;/gi, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/\s+/g, ' ')
+    .replace(/&#39;|&apos;|&rsquo;|&#8217;|&lsquo;|&#8216;/gi, "'")
+    .replace(/&quot;|&ldquo;|&#8220;|&rdquo;|&#8221;/gi, '"')
+    .replace(/&mdash;|&#8212;|&ndash;|&#8211;/gi, ' - ')
+    .replace(/&reg;|&#174;/gi, '')
+    .replace(/&#36;/g, '$')
+    .replace(/&#3647;/g, '฿')
+    .replace(/&pound;|&#163;/gi, '£')
+    .replace(/&euro;|&#8364;/gi, '€')
+    .replace(/https?:\/\/\S{35,}/gi, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n+/g, '\n')
     .trim();
+}
+
+function cleanPlainEmailText(text: string): string {
+  return text
+    .replace(/https?:\/\/\S{35,}/gi, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n+/g, '\n')
+    .trim();
+}
+
+function collectMimeBodies(payload: any, plainParts: string[], htmlParts: string[]): void {
+  if (!payload) return;
+  const mime = String(payload.mimeType || '').toLowerCase();
+  if (mime === 'text/plain' && payload.body?.data) {
+    const decoded = cleanPlainEmailText(decodeBase64Url(payload.body.data));
+    if (decoded) plainParts.push(decoded);
+  } else if (mime === 'text/html' && payload.body?.data) {
+    const decoded = stripHtmlTags(decodeBase64Url(payload.body.data));
+    if (decoded) htmlParts.push(decoded);
+  }
+  if (Array.isArray(payload.parts)) {
+    for (const part of payload.parts) {
+      collectMimeBodies(part, plainParts, htmlParts);
+    }
+  }
+}
+
+function hasReceiptCurrencySignal(text: string): boolean {
+  return /(?:[$£€฿]\s*\d+(?:[.,]\d{1,2})?|\b\d+(?:[.,]\d{1,2})?\s*(?:THB|USD|GBP|EUR|CAD|AUD|SGD|JPY|baht|บาท)\b|\b(?:THB|USD|GBP|EUR|CAD|AUD|SGD|JPY)\s*\d+(?:[.,]\d{1,2})?|\b(?:mobile\s+order\s+receipt|check-in#|subtotal|order\s+total|total\s+charged|amount\s+paid|grand\s+total|you\s+sent)\b|ยอดรวม|รวมทั้งสิ้น)/i.test(
+    text
+  );
+}
+
+function extractReceiptFocusedExcerpt(text: string, maxChars = 9000): string {
+  if (text.length <= maxChars) return text;
+
+  // Locate where receipt line items, Order#, Subtotal, and Total live so corporate legal footers never push out the middle receipt table
+  const anchorRegex =
+    /\b(mobile\s+order\s+receipt|check-in#|order#\s*[a-z0-9-]+|subtotal|order\s+total|grand\s+total|total\s+savings|total\s+charged|amount\s+paid|you\s+sent|(?<!sub)total)\b|ยอดรวม|รวมทั้งสิ้น/gi;
+  const matches = Array.from(text.matchAll(anchorRegex));
+
+  if (matches.length > 0) {
+    const firstIdx = matches[0].index ?? 0;
+    const lastIdx = matches[matches.length - 1].index ?? firstIdx;
+    const windowStart = Math.max(0, firstIdx - 900);
+    const windowEnd = Math.min(text.length, Math.max(windowStart + 4800, lastIdx + 1200));
+    const headEnd = Math.min(2600, windowStart);
+    if (headEnd > 200) {
+      return `${text.slice(0, headEnd)}\n${text.slice(windowStart, windowEnd)}`.slice(0, maxChars);
+    }
+    return text.slice(windowStart, windowStart + maxChars);
+  }
+
+  const headChars = Math.floor(maxChars * 0.65);
+  const tailChars = maxChars - headChars - 25;
+  return `${text.slice(0, headChars)}\n...[footer omitted]...\n${text.slice(-tailChars)}`;
 }
 
 function extractReadableMessageBody(payload: any): string {
   if (!payload) return '';
-  if (payload.mimeType === 'text/plain' && payload.body?.data) {
-    return decodeBase64Url(payload.body.data);
+  const plainParts: string[] = [];
+  const htmlParts: string[] = [];
+  collectMimeBodies(payload, plainParts, htmlParts);
+
+  const plainJoined = plainParts.join('\n').trim();
+  const htmlJoined = htmlParts.join('\n').trim();
+
+  // Retail & fast-food emails (McDonald's, Wonder, Wise, GrabFood, Uber Eats, DoorDash) often place
+  // a short stub in text/plain while the itemized receipt & Total ($0.00 or paid) live in text/html.
+  if (
+    htmlJoined &&
+    (!plainJoined ||
+      (!hasReceiptCurrencySignal(plainJoined) && hasReceiptCurrencySignal(htmlJoined)) ||
+      htmlJoined.length > plainJoined.length * 1.5)
+  ) {
+    return extractReceiptFocusedExcerpt(htmlJoined);
   }
-  if (Array.isArray(payload.parts)) {
-    for (const part of payload.parts) {
-      if (part.mimeType === 'text/plain' && part.body?.data) {
-        return decodeBase64Url(part.body.data);
-      }
-    }
-    for (const part of payload.parts) {
-      const nested = extractReadableMessageBody(part);
-      if (nested) return nested;
-    }
-    for (const part of payload.parts) {
-      if (part.mimeType === 'text/html' && part.body?.data) {
-        return stripHtmlTags(decodeBase64Url(part.body.data));
-      }
-    }
+  if (plainJoined) {
+    return extractReceiptFocusedExcerpt(plainJoined);
   }
-  if (payload.mimeType === 'text/html' && payload.body?.data) {
-    return stripHtmlTags(decodeBase64Url(payload.body.data));
-  }
-  return '';
+  return extractReceiptFocusedExcerpt(htmlJoined);
 }
 
 export interface GmailScanResult {
@@ -1005,8 +1114,9 @@ export interface GmailScanResult {
 }
 
 export async function scanGmailReceiptsWithPermission(options: {
-  daysWindow: 7 | 30 | 90;
+  daysWindow: 7 | 30 | 90 | 365;
   maxMessages?: number;
+  merchantFilter?: string;
   existingTransactions: Transaction[];
 }): Promise<GmailScanResult> {
   const token = cachedAccessToken;
@@ -1019,8 +1129,13 @@ export async function scanGmailReceiptsWithPermission(options: {
     };
   }
 
-  const maxResults = options.maxMessages ?? 10;
-  const gmailQuery = `newer_than:${options.daysWindow}d (receipt OR "order confirmation" OR invoice OR "payment received" OR "amount paid" OR "total charged" OR subscription)`;
+  const maxResults = options.maxMessages ?? 40;
+  const customMerchant = (options.merchantFilter || '').trim();
+  const antiSpamExclusions =
+    '-from:handshake -from:joinhandshake.com -from:linkedin.com -from:indeed.com -from:glassdoor.com -from:ziprecruiter.com -subject:("top applicant" OR "how was your" OR "off your order" OR "off your cart" OR "% off" OR "eligible for" OR "join our challenge" OR "get paid $" OR "starting at $" OR "want free tickets")';
+  const gmailQuery = customMerchant
+    ? `newer_than:${options.daysWindow}d (${customMerchant}) ${antiSpamExclusions}`
+    : `newer_than:${options.daysWindow}d ("mobile order receipt" OR "thanks for placing a mobile order" OR "here's your receipt" OR "order is confirmed" OR "order confirmation" OR "order summary" OR "order total" OR "check-in#" OR "thank you for placing your mobile order" OR "thank you for your order" OR "thanks for ordering" OR "payment received" OR "amount paid" OR "total charged" OR "payment confirmation" OR "you sent" OR "subscription renewal" OR "billing statement" OR receipt OR invoice OR from:mcdonalds.com OR "mcdonald's" OR from:wise.com OR from:transferwise.com OR from:wonder.com OR from:grab.com OR "grabfood" OR foodpanda OR "line man" OR "uber eats" OR doordash OR grubhub OR deliveroo OR "just eat" OR "ใบเสร็จ" OR "คำสั่งซื้อ" OR "ยอดรวม") ${antiSpamExclusions}`;
 
   const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(
     gmailQuery
@@ -1061,7 +1176,9 @@ export async function scanGmailReceiptsWithPermission(options: {
     return {
       messagesScanned: 0,
       extractedTransactions: [],
-      summaryNote: `Scanned Gmail (last ${options.daysWindow} days): no matching receipt or invoice emails found.`,
+      summaryNote: customMerchant
+        ? `Scanned Gmail (last ${options.daysWindow} days) for "${customMerchant}": no matching emails found. Check if the order went to a different email or increase the day range.`
+        : `Scanned Gmail (last ${options.daysWindow} days): no matching receipt or order emails found.`,
     };
   }
 
@@ -1089,7 +1206,7 @@ export async function scanGmailReceiptsWithPermission(options: {
     const from = getHeader('From');
     const dateHdr = getHeader('Date');
     const snippet = String(msg.snippet || '');
-    const bodyText = extractReadableMessageBody(msg.payload).slice(0, 2200);
+    const bodyText = extractReadableMessageBody(msg.payload);
 
     emailBlocks.push(
       [
@@ -1133,6 +1250,6 @@ export async function scanGmailReceiptsWithPermission(options: {
       : [],
     summaryNote:
       parsedData.summaryNote ||
-      `Scanned ${emailBlocks.length} Gmail message(s) for receipts and bills.`,
+      `Scanned ${emailBlocks.length} Gmail message(s) for receipts, food orders, and bills.`,
   };
 }

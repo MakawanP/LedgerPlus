@@ -82,7 +82,7 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
     setAmount('');
     setCategory(enableSplit ? 'Coffee & Drinks' : 'Food & Restaurants');
     setPaymentOrAccount(
-      enableSplit ? 'Apple Pay · Chase Sapphire ••4821' : 'Cash (Physical Currency)'
+      enableSplit ? 'Apple Pay' : 'Cash (Physical Currency)'
     );
     setNote('');
     setSplitEnabled(enableSplit);
@@ -97,7 +97,7 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
     setMerchantOrSource('');
     setAmount('');
     setCategory('Other / Uncategorized');
-    setPaymentOrAccount('ACH Checking ••8830');
+    setPaymentOrAccount('Direct Deposit / Checking');
     setNote('');
     setSplitEnabled(false);
     setMenuState('one_off_income');
@@ -339,9 +339,10 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
                       onChange={(e) => setPaymentOrAccount(e.target.value)}
                       className="w-full min-h-[42px] sm:min-h-0 px-2.5 py-1.5 text-base sm:text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl sm:rounded-lg text-slate-900 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-900 focus:border-slate-900 dark:focus:border-slate-400 focus:outline-none"
                     >
-                      <option value="ACH Checking ••8830">ACH Checking ••8830</option>
+                      <option value="Direct Deposit / Checking">Direct Deposit / Checking</option>
+                      <option value="Wise Account">Wise Account</option>
                       <option value="Cash (Physical Currency)">Cash (Physical Currency)</option>
-                      <option value="Marcus HYSA ••4410">Marcus HYSA ••4410</option>
+                      <option value="High-Yield Savings">High-Yield Savings</option>
                     </select>
                   </div>
                 )}
@@ -373,10 +374,10 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
                       className="w-full min-h-[42px] sm:min-h-0 px-2 py-1.5 text-base sm:text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl sm:rounded-lg text-slate-900 dark:text-slate-100 focus:bg-white dark:focus:bg-slate-900 focus:border-slate-900 dark:focus:border-slate-400 focus:outline-none"
                     >
                       <option value="Cash (Physical Currency)">Cash</option>
-                      <option value="Apple Pay · Chase Sapphire ••4821">Apple Pay ••4821</option>
-                      <option value="Chase Sapphire ••4821">Chase ••4821</option>
-                      <option value="Amex Gold ••1094">Amex ••1094</option>
-                      <option value="Debit / Checking ••8830">Debit ••8830</option>
+                      <option value="Apple Pay">Apple Pay</option>
+                      <option value="Wise">Wise</option>
+                      <option value="Credit Card">Credit Card</option>
+                      <option value="Debit / Checking">Debit / Checking</option>
                     </select>
                   </div>
                 )}

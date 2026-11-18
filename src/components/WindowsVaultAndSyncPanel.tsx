@@ -6,7 +6,6 @@ import {
   Cloud,
   Copy,
   Database,
-  Download,
   ExternalLink,
   FileSpreadsheet,
   FolderOpen,
@@ -15,12 +14,15 @@ import {
   LogOut,
   Mail,
   MonitorSmartphone,
+  QrCode,
   RefreshCw,
   Save,
+  Search,
   Settings2,
   Smartphone,
   X,
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   ALL_SPENDING_CATEGORIES,
   DataSource,
@@ -172,7 +174,8 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
   const fallbackFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Gmail In-App Receipt Scanner State
-  const [gmailDaysWindow, setGmailDaysWindow] = useState<7 | 30 | 90>(30);
+  const [gmailDaysWindow, setGmailDaysWindow] = useState<7 | 30 | 90 | 365>(30);
+  const [gmailMerchantFilter, setGmailMerchantFilter] = useState('');
   const [isScanningGmail, setIsScanningGmail] = useState(false);
   const [gmailConsentNotice, setGmailConsentNotice] = useState<string | null>(null);
   const [gmailPreviewResult, setGmailPreviewResult] = useState<{
@@ -180,6 +183,7 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
     extractedTransactions: any[];
     summaryNote: string;
   } | null>(null);
+  const [selectedGmailIndices, setSelectedGmailIndices] = useState<Set<number>>(new Set());
 
   // Automated Data Pull State (Apple Pay Webhook + Local Watched Folder)
   const [autoPullEnabled, setAutoPullEnabled] = useState<boolean>(() => {
@@ -458,7 +462,8 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
 
       const result = await scanGmailReceiptsWithPermission({
         daysWindow: gmailDaysWindow,
-        maxMessages: 10,
+        maxMessages: 35,
+        merchantFilter: gmailMerchantFilter.trim() || undefined,
         existingTransactions: transactionsRef.current,
       });
 
@@ -470,7 +475,8 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
         }
         const retryResult = await scanGmailReceiptsWithPermission({
           daysWindow: gmailDaysWindow,
-          maxMessages: 10,
+          maxMessages: 35,
+          merchantFilter: gmailMerchantFilter.trim() || undefined,
           existingTransactions: transactionsRef.current,
         });
         if (retryResult.needsGmailAuth) {
@@ -479,15 +485,29 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
           return;
         }
         setGmailPreviewResult(retryResult);
+        setSelectedGmailIndices(
+          new Set(retryResult.extractedTransactions.map((_: any, i: number) => i))
+        );
         if (retryResult.extractedTransactions.length === 0) {
           onShowToast(retryResult.summaryNote);
+        } else {
+          onShowToast(
+            `Found ${retryResult.extractedTransactions.length} Gmail receipt(s) — review and click Import below.`
+          );
         }
         return;
       }
 
       setGmailPreviewResult(result);
+      setSelectedGmailIndices(
+        new Set(result.extractedTransactions.map((_: any, i: number) => i))
+      );
       if (result.extractedTransactions.length === 0) {
         onShowToast(result.summaryNote);
+      } else {
+        onShowToast(
+          `Found ${result.extractedTransactions.length} Gmail receipt(s) — review and click Import below.`
+        );
       }
     } catch (err: any) {
       const msg = String(err?.message || 'Unable to scan Gmail receipts right now.');
@@ -498,12 +518,28 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
     }
   };
 
+  const handleToggleGmailPreviewIndex = (idx: number) => {
+    setSelectedGmailIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        next.delete(idx);
+      } else {
+        next.add(idx);
+      }
+      return next;
+    });
+  };
+
   const handleCommitGmailPreview = () => {
     if (!gmailPreviewResult) return;
-    const { newItems, mergedUpdates } = convertExtractedItemsToLedger(
-      gmailPreviewResult.extractedTransactions,
-      'Gmail'
+    const chosen = gmailPreviewResult.extractedTransactions.filter((_: any, idx: number) =>
+      selectedGmailIndices.has(idx)
     );
+    if (chosen.length === 0) {
+      setGmailPreviewResult(null);
+      return;
+    }
+    const { newItems, mergedUpdates } = convertExtractedItemsToLedger(chosen, 'Gmail');
     const parts: string[] = [];
     if (newItems.length > 0) parts.push(`${newItems.length} Gmail receipt(s) imported`);
     if (mergedUpdates.length > 0) parts.push(`${mergedUpdates.length} duplicate(s) merged`);
@@ -513,6 +549,7 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
       parts.join(' · ') || 'Synced Gmail receipts.'
     );
     setGmailPreviewResult(null);
+    setSelectedGmailIndices(new Set());
   };
 
   // Run Automated Pull against Apple Pay webhook queue + local data/inbox/ watched folder
@@ -681,90 +718,141 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
         {/* Two-Column Strip: (1) Phone & Computer Cloud Sync + Gmail | (2) CSV Import & Feed Controls */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch">
           {/* Left (7 cols): Cloud Sync Across Phone & Computer + In-App Gmail Connection */}
-          <div className="lg:col-span-7 p-3.5 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-start gap-2.5 min-w-0">
-              <Cloud className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
-              <div className="min-w-0 text-xs">
-                {cloudUser ? (
-                  <>
-                    <div className="flex flex-wrap items-center gap-1.5 font-semibold text-slate-900 dark:text-slate-100">
-                      <span>Phone & Computer Sync Active</span>
-                      <span aria-hidden="true" className="text-slate-400">
-                        ·
-                      </span>
-                      <span className="font-mono text-[11px] font-medium text-emerald-700 dark:text-emerald-400 truncate max-w-[200px]">
-                        {cloudUser.email || 'Signed in'}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate font-mono tabular-nums">
-                      <span>
-                        {cloudSyncMeta.isCloudReady
-                          ? `Live via ${cloudSyncMeta.lastSyncedDevice}`
-                          : 'Connecting cloud ledger...'}
-                      </span>
-                      <span aria-hidden="true"> · </span>
-                      <span>
-                        {cloudSyncMeta.updatedAtIso
-                          ? `Synced ${formatShortTime(cloudSyncMeta.updatedAtIso)}`
-                          : 'Real-time'}
-                      </span>
-                      <span aria-hidden="true"> · </span>
-                      <span>{hasGmailToken ? 'Gmail Ready' : 'Gmail Standby'}</span>
-                    </div>
-                  </>
+          <div className="lg:col-span-7 p-3.5 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 rounded-lg space-y-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <Cloud className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div className="min-w-0 text-xs">
+                  {cloudUser ? (
+                    <>
+                      <div className="flex flex-wrap items-center gap-1.5 font-semibold text-slate-900 dark:text-slate-100">
+                        <span>Phone &amp; Computer Sync Active</span>
+                        <span aria-hidden="true" className="text-slate-400">
+                          ·
+                        </span>
+                        <span className="font-mono text-[11px] font-medium text-emerald-700 dark:text-emerald-400 truncate max-w-[200px]">
+                          {cloudUser.email || 'Signed in'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate font-mono tabular-nums">
+                        <span>
+                          {cloudSyncMeta.isCloudReady
+                            ? `Live via ${cloudSyncMeta.lastSyncedDevice}`
+                            : 'Connecting cloud ledger...'}
+                        </span>
+                        <span aria-hidden="true"> · </span>
+                        <span>
+                          {cloudSyncMeta.updatedAtIso
+                            ? `Synced ${formatShortTime(cloudSyncMeta.updatedAtIso)}`
+                            : 'Real-time'}
+                        </span>
+                        <span aria-hidden="true"> · </span>
+                        <span>{hasGmailToken ? 'Gmail Ready' : 'Gmail Standby'}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="font-semibold text-slate-900 dark:text-slate-100">
+                        Phone &amp; Computer Sync + Gmail Receipts
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Sign in with Google on your phone and computer to sync live and scan Gmail receipts with permission.
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {!cloudUser ? (
+                  <GoogleSignInButton
+                    onClick={() => void onSignInGoogle()}
+                    disabled={isSigningIn}
+                    label={isSigningIn ? 'Signing in...' : 'Sign in with Google'}
+                  />
                 ) : (
                   <>
-                    <div className="font-semibold text-slate-900 dark:text-slate-100">
-                      Phone & Computer Sync + Gmail Receipts
-                    </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      Sign in with Google on your phone and computer to sync live and scan Gmail receipts with permission.
-                    </div>
+                    <button
+                      type="button"
+                      onClick={handleScanGmailClick}
+                      disabled={isScanningGmail || isSigningIn}
+                      className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md disabled:opacity-60 transition-colors whitespace-nowrap shrink-0"
+                    >
+                      {isScanningGmail ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Scanning Gmail...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mail className="w-3.5 h-3.5" />
+                          <span>{hasGmailToken ? 'Scan Gmail Receipts' : 'Connect & Scan Gmail'}</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => void onSignOutGoogle()}
+                      title="Sign out of cloud sync on this device"
+                      className="min-h-[36px] inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sign Out</span>
+                    </button>
                   </>
                 )}
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              {!cloudUser ? (
-                <GoogleSignInButton
-                  onClick={() => void onSignInGoogle()}
-                  disabled={isSigningIn}
-                  label={isSigningIn ? 'Signing in...' : 'Sign in with Google'}
-                />
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleScanGmailClick}
-                    disabled={isScanningGmail || isSigningIn}
-                    className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md disabled:opacity-60 transition-colors whitespace-nowrap shrink-0"
-                  >
-                    {isScanningGmail ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Scanning Gmail...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Mail className="w-3.5 h-3.5" />
-                        <span>{hasGmailToken ? 'Scan Gmail Receipts' : 'Connect & Scan Gmail'}</span>
-                      </>
-                    )}
-                  </button>
+            {cloudUser && (
+              <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800 flex flex-wrap items-center gap-2 text-[11px]">
+                <select
+                  aria-label="Gmail scan date window"
+                  value={gmailDaysWindow}
+                  onChange={(e) =>
+                    setGmailDaysWindow(Number(e.target.value) as 7 | 30 | 90 | 365)
+                  }
+                  className="h-8 px-2 font-mono bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-700 dark:text-slate-200"
+                >
+                  <option value={7}>Gmail: Last 7d</option>
+                  <option value={30}>Gmail: Last 30d</option>
+                  <option value={90}>Gmail: Last 90d</option>
+                  <option value={365}>Gmail: Last 1 yr</option>
+                </select>
 
-                  <button
-                    type="button"
-                    onClick={() => void onSignOutGoogle()}
-                    title="Sign out of cloud sync on this device"
-                    className="min-h-[36px] inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Sign Out</span>
-                  </button>
-                </>
-              )}
-            </div>
+                <div className="relative flex-1 min-w-[180px]">
+                  <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={gmailMerchantFilter}
+                    onChange={(e) => setGmailMerchantFilter(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void handleScanGmailClick();
+                      }
+                    }}
+                    placeholder="Optional merchant filter (e.g. McDonald's, Wise, Grab)..."
+                    className="w-full h-8 pl-7 pr-7 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
+                  />
+                  {gmailMerchantFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setGmailMerchantFilter('')}
+                      aria-label="Clear Gmail merchant filter"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                <span className="text-slate-400 dark:text-slate-500 font-mono hidden xl:inline">
+                  Auto-converts THB (฿) → USD
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Right (5 cols): CSV Import + Multi-Device Install + Connections Hub */}
@@ -809,24 +897,14 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
                 <span>Connections</span>
               </button>
 
-              <a
-                href="/api/release/windows.zip"
-                download="LedgerPulse-Windows-v1.0.2.zip"
-                title="Download standalone Windows 10/11 desktop package (.zip)"
-                className="min-h-[36px] inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
-              >
-                <Download className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-                <span>Windows .zip</span>
-              </a>
-
               {!isInstalled && (
                 <button
                   type="button"
-                  onClick={handleInstallDeviceClick}
-                  title="Install or open on Phone & Computer"
+                  onClick={() => setShowDeviceSyncModal(true)}
+                  title="Scan QR code or install on Phone & Computer"
                   className="min-h-[36px] inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 rounded-md hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors whitespace-nowrap shrink-0"
                 >
-                  <MonitorSmartphone className="w-3.5 h-3.5" />
+                  <QrCode className="w-3.5 h-3.5" />
                   <span>{isIOS ? 'Add to iPhone' : 'Phone & PC App'}</span>
                 </button>
               )}
@@ -921,58 +999,97 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setGmailPreviewResult(null)}
+                  onClick={() => {
+                    setGmailPreviewResult(null);
+                    setSelectedGmailIndices(new Set());
+                  }}
                   className="px-2.5 py-1.5 font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
+                  disabled={selectedGmailIndices.size === 0}
                   onClick={handleCommitGmailPreview}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 rounded-md transition-colors"
                 >
                   <Check className="w-3.5 h-3.5" />
                   <span>
-                    Import {gmailPreviewResult.extractedTransactions.length} Gmail{' '}
-                    {gmailPreviewResult.extractedTransactions.length === 1 ? 'Record' : 'Records'}
+                    Import {selectedGmailIndices.size} Selected{' '}
+                    {selectedGmailIndices.size === 1 ? 'Receipt' : 'Receipts'}
                   </span>
                 </button>
               </div>
             </div>
 
             <div className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
-              {gmailPreviewResult.extractedTransactions.map((item, idx) => (
-                <div
-                  key={idx}
-                  className="px-3 py-2 flex flex-wrap items-center justify-between gap-2"
-                >
-                  <div className="min-w-0">
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {item.merchant}
-                    </span>
-                    <span aria-hidden="true" className="mx-1.5 text-slate-300 dark:text-slate-700">
-                      ·
-                    </span>
-                    <span className="font-mono text-slate-600 dark:text-slate-400">
-                      {item.date}
-                    </span>
-                    <span aria-hidden="true" className="mx-1.5 text-slate-300 dark:text-slate-700">
-                      ·
-                    </span>
-                    <span className="text-slate-500 dark:text-slate-400">{item.category}</span>
-                  </div>
-                  <div className="flex items-center gap-2 font-mono">
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {formatCurrency(Number(item.amount) || 0)}
-                    </span>
-                    {item.matchedExistingId && (
-                      <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                        (Merges duplicate)
+              {gmailPreviewResult.extractedTransactions.map((item, idx) => {
+                const isSelected = selectedGmailIndices.has(idx);
+                return (
+                  <label
+                    key={idx}
+                    className={`px-3 py-2.5 flex items-start justify-between gap-3 cursor-pointer transition-colors ${
+                      isSelected
+                        ? 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                        : 'opacity-55 bg-slate-50/50 dark:bg-slate-900/40'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => handleToggleGmailPreviewIndex(idx)}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600 shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-semibold text-slate-900 dark:text-slate-100">
+                            {item.merchant}
+                          </span>
+                          <span
+                            aria-hidden="true"
+                            className="text-slate-300 dark:text-slate-700"
+                          >
+                            ·
+                          </span>
+                          <span className="font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                            {item.date}
+                          </span>
+                          <span
+                            aria-hidden="true"
+                            className="text-slate-300 dark:text-slate-700"
+                          >
+                            ·
+                          </span>
+                          <span className="text-slate-500 dark:text-slate-400">
+                            {item.category}
+                          </span>
+                        </div>
+                        {item.rawDescription && (
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5 max-w-xl">
+                            {item.rawDescription}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 font-mono tabular-nums shrink-0">
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {formatCurrency(Number(item.amount) || 0)}
                       </span>
-                    )}
-                  </div>
-                </div>
-              ))}
+                      {Number(item.amount) === 0 && (
+                        <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                          Reward / $0
+                        </span>
+                      )}
+                      {item.matchedExistingId && (
+                        <span className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                          (Merges duplicate)
+                        </span>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
             </div>
           </div>
         )}
@@ -1033,12 +1150,15 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
                   <select
                     aria-label="Gmail scan window"
                     value={gmailDaysWindow}
-                    onChange={(e) => setGmailDaysWindow(Number(e.target.value) as 7 | 30 | 90)}
+                    onChange={(e) =>
+                      setGmailDaysWindow(Number(e.target.value) as 7 | 30 | 90 | 365)
+                    }
                     className="px-2 py-1.5 text-[11px] font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-slate-800 dark:text-slate-200"
                   >
                     <option value={7}>Last 7 days</option>
                     <option value={30}>Last 30 days</option>
                     <option value={90}>Last 90 days</option>
+                    <option value={365}>Last 1 year</option>
                   </select>
 
                   <button
@@ -1135,7 +1255,7 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
         )}
       </div>
 
-      {/* Multi-Device (Phone + Computer) Sync & Install Modal */}
+      {/* Multi-Device (Phone + Computer) Sync & QR Code Install Modal */}
       {showDeviceSyncModal && (
         <div
           role="dialog"
@@ -1146,15 +1266,15 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-6 space-y-4 text-xs"
+            className="w-full max-w-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-6 space-y-4 text-xs"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                  Sync & Install Across Phone and Computer
+                  Phone &amp; PC App — Scan QR Code or Copy Link
                 </h3>
                 <p className="text-slate-500 dark:text-slate-400 mt-0.5">
-                  Sign in with the same Google account on both devices for instant real-time ledger synchronization.
+                  Point your iPhone or Android camera at the QR code below, then sign in with the same Google account to sync live.
                 </p>
               </div>
               <button
@@ -1168,48 +1288,68 @@ export const WindowsVaultAndSyncPanel: React.FC<WindowsVaultAndSyncPanelProps> =
             </div>
 
             <div className="space-y-3 text-slate-700 dark:text-slate-300">
-              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-lg space-y-2">
-                <div className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                  <Smartphone className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
-                  <span>01. Install &amp; Sync on iPhone (or Android)</span>
+              <div className="p-4 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-lg flex flex-col sm:flex-row items-center sm:items-start gap-4">
+                <div className="p-3 bg-white border border-slate-200 rounded-lg shrink-0 flex flex-col items-center gap-1.5">
+                  <QRCodeSVG
+                    value={mobileShareUrl}
+                    size={136}
+                    level="M"
+                    includeMargin={false}
+                    bgColor="#FFFFFF"
+                    fgColor="#0F172A"
+                  />
+                  <span className="text-[10px] font-mono text-slate-500">
+                    Scan with iPhone Camera
+                  </span>
                 </div>
-                <ol className="list-decimal list-inside text-slate-600 dark:text-slate-400 space-y-1 leading-relaxed">
-                  <li>Open the Cloud App URL below in <strong>Safari</strong> on your iPhone.</li>
-                  <li>Tap the <strong>Share</strong> icon (square with arrow) → <strong>Add to Home Screen</strong> to install it like a native iOS app.</li>
-                  <li>Tap <strong>Sign in with Google</strong> using the <strong>same Google account</strong> as your Windows PC—all transactions, split bills, budgets, and goals sync live over Wi-Fi &amp; 5G.</li>
-                </ol>
-                <div className="flex items-center gap-1.5 pt-1">
-                  <code className="flex-1 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded font-mono text-[11px] truncate">
-                    {mobileShareUrl}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={handleCopyAppUrl}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-950 rounded hover:opacity-90 whitespace-nowrap"
-                  >
-                    {copiedAppUrl ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    <span>{copiedAppUrl ? 'Copied Link' : 'Copy iPhone Link'}</span>
-                  </button>
+
+                <div className="flex-1 min-w-0 space-y-2 w-full">
+                  <div className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                    <Smartphone className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                    <span>01. Install &amp; Sync on iPhone or Android</span>
+                  </div>
+                  <ol className="list-decimal list-inside text-slate-600 dark:text-slate-400 space-y-1 leading-relaxed">
+                    <li>Scan the QR code with your phone camera to open in <strong>Safari</strong> (or Chrome).</li>
+                    <li>Tap <strong>Share</strong> → <strong>Add to Home Screen</strong> for a full-screen home icon.</li>
+                    <li>Tap <strong>Sign in with Google</strong> using the same Google account as your computer—transactions, splits, and budgets sync automatically.</li>
+                  </ol>
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <code className="flex-1 px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded font-mono text-[11px] truncate">
+                      {mobileShareUrl}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={handleCopyAppUrl}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 font-medium bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-950 rounded hover:opacity-90 whitespace-nowrap shrink-0"
+                    >
+                      {copiedAppUrl ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedAppUrl ? 'Copied' : 'Copy Link'}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-lg space-y-2.5">
-                <div className="font-semibold text-slate-900 dark:text-slate-100">
-                  02. Install on Windows 10 / 11 or Mac Computer
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                    <MonitorSmartphone className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300 shrink-0" />
+                    <span>02. Pin Desktop App on Windows 10 / 11 or Mac</span>
+                  </div>
+                  <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
+                    Click the <strong>Install LedgerPulse</strong> icon on the right side of Microsoft Edge or Chrome&apos;s address bar to pin a standalone desktop window to your Taskbar or Start Menu.
+                  </p>
                 </div>
-                <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Download the packaged Windows release ZIP below, extract it, and run <code className="font-mono">Install-Windows-App.bat</code> (or <code className="font-mono">LedgerPulse.vbs</code>) for a silent, zero-console Windows desktop app with Desktop &amp; Start Menu shortcuts—or click <strong>Install LedgerPulse</strong> in Edge/Chrome&apos;s address bar.
-                </p>
-                <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                  <a
-                    href="/api/release/windows.zip"
-                    download="LedgerPulse-Windows-v1.0.2.zip"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md transition-colors whitespace-nowrap"
+
+                {isInstallable && (
+                  <button
+                    type="button"
+                    onClick={handleInstallDeviceClick}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md transition-colors whitespace-nowrap shrink-0"
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download Windows Release (.zip)</span>
-                  </a>
-                </div>
+                    <MonitorSmartphone className="w-3.5 h-3.5" />
+                    <span>Install Desktop App</span>
+                  </button>
+                )}
               </div>
             </div>
 

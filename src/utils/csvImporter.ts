@@ -6,6 +6,7 @@ import {
   TransactionStatus,
   TransactionType,
 } from '../types/finance';
+import { convertToUsd, detectCurrencyCode } from './currencyConverter';
 
 export type CsvSignConvention = 'auto' | 'negative_is_expense' | 'positive_is_expense';
 
@@ -16,6 +17,7 @@ export interface CsvColumnMapping {
   amountCol: number; // -1 if using separate debit/credit columns
   debitCol: number; // -1 if single amount column
   creditCol: number; // -1 if single amount column
+  currencyCol?: number; // -1 if none (e.g. Wise / multi-currency CSVs)
   categoryCol: number; // -1 if none
   paymentMethodCol: number; // -1 if none
   typeCol: number; // -1 if none
@@ -161,7 +163,7 @@ function looksLikeDateValue(val: string): boolean {
 function looksLikeCurrencyValue(val: string): boolean {
   const s = val.trim();
   if (!s) return false;
-  return /^[(+-]?\s*[$€£]?\s*\d{1,7}(?:,\d{3})*(?:\.\d{1,4})?\)?$/.test(s);
+  return /^[(+-]?\s*[$€£฿¥₩₱₫]?\s*\d{1,8}(?:,\d{3})*(?:\.\d{1,4})?\s*(?:THB|USD|EUR|GBP|SGD|JPY)?\)?$/i.test(s);
 }
 
 export function parseCurrencyCell(raw: string | undefined): number | null {
@@ -238,7 +240,7 @@ export function inferSpendingCategory(
     return { category: 'Coffee & Drinks', uncertain: false };
   }
   if (
-    /\b(restaurant|dining|food\s*&\s*drink|doordash|uber\s*eats|grubhub|sweetgreen|chipotle|tartine|pizza|sushi|burger|bistro|bar|grill|bakery)\b/.test(
+    /\b(mcdonald'?s|mcdonalds|mcdelivery|mcflurry|burger\s*king|wendy'?s|taco\s*bell|kfc|chick-fil-a|popeyes|domino'?s|pizza\s*hut|five\s*guys|shake\s*shack|dunkin|tim\s*hortons|grabfood|foodpanda|line\s*man|deliveroo|just\s*eat|restaurant|dining|food\s*&\s*drink|doordash|uber\s*eats|grubhub|sweetgreen|chipotle|tartine|pizza|sushi|burger|bistro|bar|grill|bakery)\b/.test(
       combined
     )
   ) {
@@ -432,6 +434,10 @@ export function analyzeCsvStructure(rawText: string): ParsedCsvFileStructure {
     }
   }
 
+  const currencyCol = findHeaderIdx(
+    [/^currency$/i, /^target\s*currency$/i, /^source\s*currency$/i, /currency/i],
+    [dateCol, merchantCol, amountCol]
+  );
   const categoryCol = findHeaderIdx([/^category$/i, /^spending\s*category$/i, /category/i], [
     dateCol,
     merchantCol,
@@ -441,7 +447,7 @@ export function analyzeCsvStructure(rawText: string): ParsedCsvFileStructure {
     [/^payment\s*method$/i, /^card$/i, /^account$/i, /^account\s*name$/i],
     [dateCol, merchantCol, amountCol]
   );
-  const typeCol = findHeaderIdx([/^type$/i, /^transaction\s*type$/i], [
+  const typeCol = findHeaderIdx([/^type$/i, /^direction$/i, /^transaction\s*type$/i], [
     dateCol,
     merchantCol,
     amountCol,
@@ -460,6 +466,7 @@ export function analyzeCsvStructure(rawText: string): ParsedCsvFileStructure {
       amountCol: debitCol >= 0 && creditCol >= 0 && amountCol === -1 ? -1 : amountCol,
       debitCol: amountCol === -1 ? debitCol : -1,
       creditCol: amountCol === -1 ? creditCol : -1,
+      currencyCol,
       categoryCol,
       paymentMethodCol,
       typeCol,
@@ -475,6 +482,8 @@ export function buildCsvTransactionPreview(params: {
   defaultPaymentMethod: string;
   defaultSource: DataSource;
   existingTransactions: Transaction[];
+  forcedCurrencyCode?: string;
+  fxRates?: Record<string, number>;
 }): PreviewCsvRow[] {
   const {
     structure,
@@ -483,6 +492,8 @@ export function buildCsvTransactionPreview(params: {
     defaultPaymentMethod,
     defaultSource,
     existingTransactions,
+    forcedCurrencyCode = 'AUTO',
+    fxRates,
   } = params;
 
   const { dataRows } = structure;
@@ -541,23 +552,61 @@ export function buildCsvTransactionPreview(params: {
       return;
     }
 
-    const absAmount = Math.round(Math.abs(signedVal) * 100) / 100;
+    const rawAmountText =
+      mapping.amountCol >= 0
+        ? row[mapping.amountCol] || ''
+        : `${mapping.debitCol >= 0 ? row[mapping.debitCol] || '' : ''} ${
+            mapping.creditCol >= 0 ? row[mapping.creditCol] || '' : ''
+          }`;
+    const rawCurrencyCell =
+      typeof mapping.currencyCol === 'number' && mapping.currencyCol >= 0
+        ? row[mapping.currencyCol] || ''
+        : '';
+
+    const detectedCurrency =
+      forcedCurrencyCode && forcedCurrencyCode !== 'AUTO'
+        ? forcedCurrencyCode
+        : detectCurrencyCode(`${rawCurrencyCell} ${rawAmountText}`);
+
+    const rawAbsAmount = Math.round(Math.abs(signedVal) * 100) / 100;
+    const { usdAmount: absAmount, rateUsed } = convertToUsd(
+      rawAbsAmount,
+      detectedCurrency,
+      undefined,
+      fxRates
+    );
+
     const merchant = cleanMerchantName(rawMerchantCell || rawDescExtra || 'CSV Entry');
-    const rawDescription = (rawDescExtra || rawMerchantCell || merchant).slice(0, 220);
+    const baseDescription = (rawDescExtra || rawMerchantCell || merchant).slice(0, 170);
+    const rawDescription =
+      detectedCurrency !== 'USD'
+        ? `${baseDescription} · ${rawAbsAmount.toLocaleString('en-US', {
+            maximumFractionDigits: 2,
+          })} ${detectedCurrency} (@ ${rateUsed})`
+        : baseDescription;
     const combinedLower = `${merchant} ${rawDescription} ${rawCatCell} ${rawTypeCell}`.toLowerCase();
 
     // Determine transactionType: purchase | refund | income | transfer
+    // Only mark as 'transfer' when moving money between the user's OWN accounts (never external Wise transfers!)
     let transactionType: TransactionType = 'purchase';
 
-    if (
-      rawTypeCell === 'transfer' ||
-      /\b(autopay|payment\s*-?\s*thank\s*you|credit\s*card\s*payment|online\s*transfer|zelle\s*to\s*self|internal\s*transfer|epayment)\b/i.test(
+    const isExternalWiseSend =
+      /\bwise\b/i.test(`${merchant} ${defaultPaymentMethod} ${rawPaymentCell}`) &&
+      !/\b(added\s+money\s+to\s+your|topped\s+up\s+your|between\s+your\s+balances)\b/i.test(
         combinedLower
-      )
+      );
+
+    if (
+      !isExternalWiseSend &&
+      (rawTypeCell === 'internal_transfer' ||
+        /\b(autopay|payment\s*-?\s*thank\s*you|credit\s*card\s*payment|zelle\s*to\s*self|internal\s*transfer|epayment|transfer\s+to\s+savings|added\s+money\s+to\s+your)\b/i.test(
+          combinedLower
+        ))
     ) {
       transactionType = 'transfer';
     } else if (
       rawTypeCell === 'income' ||
+      rawTypeCell === 'in' ||
       /\b(payroll|direct\s*dep|salary|dividend|interest\s*payment|tax\s*refund)\b/i.test(
         combinedLower
       )

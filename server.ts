@@ -183,24 +183,74 @@ function getGeminiClient() {
   });
 }
 
+const FALLBACK_USD_RATES: Record<string, number> = {
+  USD: 1,
+  THB: 34.5,
+  EUR: 0.92,
+  GBP: 0.79,
+  JPY: 152.5,
+  SGD: 1.34,
+  MYR: 4.45,
+  VND: 25300,
+  IDR: 15800,
+  KRW: 1390,
+  PHP: 58.2,
+  AUD: 1.53,
+  CAD: 1.39,
+  CHF: 0.88,
+  HKD: 7.78,
+  TWD: 32.4,
+  CNY: 7.23,
+  INR: 84.4,
+};
+
+let cachedFxRates: Record<string, number> = { ...FALLBACK_USD_RATES };
+let cachedFxExpiresAt = 0;
+
+async function getLiveUsdRates(): Promise<Record<string, number>> {
+  const now = Date.now();
+  if (now < cachedFxExpiresAt) {
+    return cachedFxRates;
+  }
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/USD', {
+      signal: AbortSignal.timeout(2500),
+    });
+    if (res.ok) {
+      const data: any = await res.json();
+      if (data?.rates && typeof data.rates === 'object') {
+        cachedFxRates = { ...FALLBACK_USD_RATES, ...data.rates, USD: 1 };
+        cachedFxExpiresAt = now + 1000 * 60 * 60 * 6;
+      }
+    }
+  } catch {
+    cachedFxExpiresAt = now + 1000 * 60 * 10;
+  }
+  return cachedFxRates;
+}
+
 function inferCategoryFromText(merchantAndBody: string): {
   category: string;
   uncertain: boolean;
 } {
   const s = merchantAndBody.toLowerCase();
-  if (/\b(uber\s*eats|doordash|grubhub|sweetgreen|chipotle|tartine|restaurant|diner|bistro|pizza|sushi|grill)\b/.test(s)) {
+  if (
+    /\b(wonder|mcdonald'?s|mcdonalds|mcdelivery|mcflurry|filet-o-fish|mcchicken|big\s*mac|burger\s*king|wendy'?s|taco\s*bell|kfc|chick-fil-a|popeyes|subway|domino'?s|pizza\s*hut|papa\s*john|five\s*guys|shake\s*shack|in-n-out|panda\s*express|wingstop|nando'?s|greggs|tim\s*hortons|dunkin|uber\s*eats|doordash|grubhub|deliveroo|just\s*eat|grabfood|foodpanda|line\s*man|sweetgreen|chipotle|panera|tartine|restaurant|diner|bistro|pizza|sushi|burger|grill|takeaway|drive-thru)\b/.test(
+      s
+    )
+  ) {
     return { category: 'Food & Restaurants', uncertain: false };
   }
-  if (/\b(starbucks|blue bottle|philz|peet|coffee|cafe|espresso|bakery)\b/.test(s)) {
+  if (/\b(starbucks|blue bottle|philz|peet|costa\s*coffee|pret|coffee|cafe|espresso|bakery|boba)\b/.test(s)) {
     return { category: 'Coffee & Drinks', uncertain: false };
   }
-  if (/\b(whole foods|trader joe|safeway|kroger|costco|instacart|grocery|supermarket|market)\b/.test(s)) {
+  if (/\b(whole foods|trader joe|safeway|kroger|costco|aldi|lidl|tesco|sainsbury|asda|waitrose|instacart|grocery|supermarket|market)\b/.test(s)) {
     return { category: 'Groceries', uncertain: false };
   }
-  if (/\b(uber|lyft|waymo|taxi|cab|transit|bart|mta|caltrain)\b/.test(s)) {
+  if (/\b(uber|lyft|waymo|bolt|taxi|cab|transit|bart|mta|caltrain|tfl)\b/.test(s)) {
     return { category: 'Transportation / Uber / Taxi', uncertain: false };
   }
-  if (/\b(shell|chevron|texaco|arco|exxon|mobil|parking|parkmobile|fasTrak|toll)\b/.test(s)) {
+  if (/\b(shell|chevron|texaco|arco|exxon|mobil|bp|esso|parking|parkmobile|fastrak|toll)\b/.test(s)) {
     return { category: 'Gas & Parking', uncertain: false };
   }
   if (/\b(netflix|spotify|hulu|disney|apple\.com\/bill|icloud|youtube|openai|chatgpt|claude|adobe|github|patreon|substack|nytimes|membership|subscription)\b/.test(s)) {
@@ -212,13 +262,13 @@ function inferCategoryFromText(merchantAndBody: string): {
   if (/\b(rent|apartment|hoa|mortgage|leasing)\b/.test(s)) {
     return { category: 'Rent & Housing', uncertain: false };
   }
-  if (/\b(airbnb|marriott|hilton|hyatt|delta|united|american airlines|southwest|flight|hotel|expedia)\b/.test(s)) {
+  if (/\b(airbnb|marriott|hilton|hyatt|delta|united|american airlines|southwest|flight|hotel|expedia|booking\.com)\b/.test(s)) {
     return { category: 'Travel & Hotels', uncertain: false };
   }
-  if (/\b(equinox|peloton|gym|fitness|cvs|walgreens|pharmacy|dental|medical|clinic)\b/.test(s)) {
+  if (/\b(equinox|peloton|gym|fitness|cvs|walgreens|boots|pharmacy|dental|medical|clinic)\b/.test(s)) {
     return { category: 'Health & Fitness', uncertain: false };
   }
-  if (/\b(amc|regal|ticketmaster|stubhub|steam|playstation|nintendo|cinema|concert)\b/.test(s)) {
+  if (/\b(amc|regal|ticketmaster|stubhub|steam|playstation|nintendo|xbox|cinema|concert)\b/.test(s)) {
     return { category: 'Entertainment', uncertain: false };
   }
   if (/\b(udemy|coursera|tuition|university|textbook|book)\b/.test(s)) {
@@ -236,10 +286,54 @@ function inferCategoryFromText(merchantAndBody: string): {
   return { category: 'Other / Uncategorized', uncertain: true };
 }
 
+const MONTH_NAME_TO_NUM: Record<string, string> = {
+  jan: '01',
+  feb: '02',
+  mar: '03',
+  apr: '04',
+  may: '05',
+  jun: '06',
+  jul: '07',
+  aug: '08',
+  sep: '09',
+  oct: '10',
+  nov: '11',
+  dec: '12',
+};
+
 function normalizeIsoDate(rawDate: string): string {
   const trimmed = rawDate.trim();
-  const isoMatch = trimmed.match(/\b(20\d{2}-\d{2}-\d{2})\b/);
-  if (isoMatch) return isoMatch[1];
+  const isoMatch = trimmed.match(/\b(20\d{2})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+
+  // Match US MM/DD/YYYY dates inside multi-line receipts (e.g. "10/30/2026 03:08:29 PM" on McDonald's Mobile Order Receipts)
+  const usSlashMatch = trimmed.match(/\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])\/(20\d{2})\b/);
+  if (usSlashMatch) {
+    const mm = usSlashMatch[1].padStart(2, '0');
+    const dd = usSlashMatch[2].padStart(2, '0');
+    return `${usSlashMatch[3]}-${mm}-${dd}`;
+  }
+
+  // Match RFC 2822 email Date headers in sender/local date ("Fri, 30 Oct 2026 ...") without UTC rollover
+  const rfcDayFirst = trimmed.match(
+    /\b(0?[1-9]|[12]\d|3[01])\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(20\d{2})\b/i
+  );
+  if (rfcDayFirst) {
+    const dd = rfcDayFirst[1].padStart(2, '0');
+    const mm = MONTH_NAME_TO_NUM[rfcDayFirst[2].slice(0, 3).toLowerCase()] || '11';
+    return `${rfcDayFirst[3]}-${mm}-${dd}`;
+  }
+
+  // Match "Oct 30, 2026" / "October 30, 2026"
+  const monthFirst = trimmed.match(
+    /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(0?[1-9]|[12]\d|3[01]),?\s+(20\d{2})\b/i
+  );
+  if (monthFirst) {
+    const mm = MONTH_NAME_TO_NUM[monthFirst[1].slice(0, 3).toLowerCase()] || '11';
+    const dd = monthFirst[2].padStart(2, '0');
+    return `${monthFirst[3]}-${mm}-${dd}`;
+  }
+
   const parsed = new Date(trimmed);
   if (!Number.isNaN(parsed.getTime())) {
     return parsed.toISOString().slice(0, 10);
@@ -247,57 +341,302 @@ function normalizeIsoDate(rawDate: string): string {
   return '2026-11-17';
 }
 
-function cleanSenderMerchant(fromHeader: string, subjectHeader: string): string {
-  const namePart = fromHeader.split('<')[0].replace(/["']/g, '').trim();
-  const cleaned = namePart
-    .replace(/\b(receipts?|orders?|billing|payments?|no-?reply|notifications?|auto-confirm|support|team)\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .replace(/^[\s\-·|]+|[\s\-·|]+$/g, '')
-    .trim();
-  if (cleaned.length >= 2) return cleaned.slice(0, 80);
+function cleanSenderMerchant(fromHeader: string, subjectHeader: string, bodyText = ''): string {
+  const cleanSubj = subjectHeader.replace(/^(?:\s*(?:fwd?|re)\s*:\s*)+/i, '').trim();
+  const isForwarded = /^(?:\s*(?:fwd?|re)\s*:)/i.test(subjectHeader) || /Forwarded message/i.test(bodyText);
+  const innerFrom = isForwarded
+    ? bodyText.match(/Forwarded message[\s\S]{0,260}?From:\s*([^\n]+)/i)?.[1]?.trim() || ''
+    : '';
+  const effectiveFrom = innerFrom || fromHeader;
+  const combined = `${effectiveFrom} ${cleanSubj}`;
+  const combinedWithBody = `${combined} ${bodyText.slice(0, 1200)}`;
 
-  const domainMatch = fromHeader.match(/@([a-z0-9-]+)\./i);
-  if (domainMatch && domainMatch[1]) {
+  if (/mcdonald'?s|mcdelivery/i.test(combinedWithBody)) return "McDonald's";
+  if (/\bpopeyes\b/i.test(combined)) return 'Popeyes';
+  if (/\bsteam\b|steampowered/i.test(combined)) return 'Steam';
+  if (/\bwonder\b/i.test(effectiveFrom) || /\byour wonder order\b/i.test(cleanSubj)) return 'Wonder';
+  if (/\b(wise|transferwise)\b/i.test(effectiveFrom) || /\byou sent\b.*\bwise\b/i.test(combined)) return 'Wise';
+  if (/\bgrab\s*food\b/i.test(combined)) return 'GrabFood';
+  if (/\bfoodpanda\b/i.test(combined)) return 'Foodpanda';
+  if (/\bline\s*man\b/i.test(combined)) return 'LINE MAN';
+  if (/uber\s*eats/i.test(combined)) return 'Uber Eats';
+  if (/doordash/i.test(combined)) return 'DoorDash';
+  if (/grubhub/i.test(combined)) return 'Grubhub';
+  if (/deliveroo/i.test(combined)) return 'Deliveroo';
+  if (/just\s*eat/i.test(combined)) return 'Just Eat';
+
+  if (!isForwarded || innerFrom) {
+    const namePart = effectiveFrom.split('<')[0].replace(/["']/g, '').trim();
+    const cleaned = namePart
+      .replace(/\b(receipts?|orders?|billing|payments?|no-?reply|notifications?|auto-confirm|support|team)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s\-·|]+|[\s\-·|]+$/g, '')
+      .trim();
+    if (cleaned.length >= 2) return cleaned.slice(0, 80);
+  }
+
+  const domainMatch = effectiveFrom.match(/@(?:[a-z0-9-]+\.)?([a-z0-9-]+)\.[a-z]{2,}/i);
+  if (domainMatch && domainMatch[1] && !/^(gmail|yahoo|outlook|hotmail|icloud|rutgers|edu)$/i.test(domainMatch[1])) {
     const dom = domainMatch[1];
+    if (/mcdonalds/i.test(dom)) return "McDonald's";
+    if (/wise|transferwise/i.test(dom)) return 'Wise';
     return dom.charAt(0).toUpperCase() + dom.slice(1);
   }
-  return (subjectHeader || 'Receipt Merchant').slice(0, 60);
+  return (cleanSubj || 'Receipt Merchant').slice(0, 60);
 }
 
-function extractDollarAmountFromBlock(text: string): number | null {
-  const priorityPatterns = [
-    /(?:total(?:\s+charged|\s+paid|\s+amount)?|amount(?:\s+paid|\s+charged)?|grand\s+total|charged|payment\s+of)\s*[:\-]?\s*\$\s*(\d{1,6}(?:,\d{3})*(?:\.\d{2}))/i,
-    /\$\s*(\d{1,6}(?:,\d{3})*\.\d{2})\s*(?:usd|total|paid|charged)/i,
-  ];
-  for (const pat of priorityPatterns) {
-    const m = text.match(pat);
-    if (m && m[1]) {
-      const val = parseFloat(m[1].replace(/,/g, ''));
-      if (val > 0) return val;
+function isNonTransactionEmail(fromLine: string, subjectLine: string, bodyText = ''): boolean {
+  const sender = fromLine.toLowerCase();
+  const subj = subjectLine.replace(/^(?:\s*(?:fwd?|re)\s*:\s*)+/i, '').trim();
+
+  // 1. Job boards, recruiting platforms, & career alerts (Handshake, LinkedIn, Indeed, Glassdoor, etc.)
+  if (
+    /\b(handshake|joinhandshake|linkedin|indeed|glassdoor|ziprecruiter|wellfound|greenhouse\.io|lever\.co|myworkdayjobs|ashbyhq|wayup|ripplematch)\b/i.test(
+      sender
+    )
+  ) {
+    return true;
+  }
+  if (
+    /(\bsees you as a top applicant\b|\btop applicant\b|\bjob alert\b|\bnew jobs?\b|\bhiring now\b|\bget paid \$\d+|\bapply now\b|\bcareer opportunity\b|\binvited you to apply\b)/i.test(
+      `${subj} ${bodyText.slice(0, 400)}`
+    )
+  ) {
+    return true;
+  }
+
+  // 2. Promotional coupons, % / $ off cart offers, grocery flyers, sweepstakes, challenges, & free-trial upsells
+  if (
+    /(\bget \$\d+(?:\.\d{1,2})?\s*off\b|\$\d+(?:\.\d{1,2})?\s*off\b|\b\d+%\s*off\b|\boff your (?:order|cart|next|purchase)\b|\bon us\b|\byou['’]?re eligible for\b|\beligible for \d+\s*(?:months?|days?|weeks?)\b|\bclaim your (?:free|offer|reward|discount)\b|\bunlock (?:your )?\d+%|\bjoin our challenge\b|\bspooky season\b|\bstarting at \$\d+|\$\d+(?:\.\d{2})?\s*\/?\s*lb\b|\bwant free\b|\benter to win\b|\bgiveaway\b|\bpromo code\b|\bflash sale\b|\bdeal alert\b|\bdon['’]?t miss out\b|\bwe miss you\b|\bcome back and save\b)/i.test(
+      subj
+    )
+  ) {
+    return true;
+  }
+
+  // 3. Post-order surveys, review requests, & feedback emails ("How was your order from Wonder?")
+  if (
+    /(\bhow was your\b|\brate your\b|\btell us what you think\b|\bleave a review\b|\bshare your feedback\b|\bquick survey\b|\bhow did we do\b)/i.test(
+      subj
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function parseNumericMoney(raw: string, allowZero = false): number | null {
+  const normalized = raw.trim().replace(/\s/g, '');
+  const cleaned =
+    /^\d{1,6},\d{2}$/.test(normalized)
+      ? normalized.replace(',', '.')
+      : normalized.replace(/,/g, '');
+  const val = parseFloat(cleaned);
+  if (!Number.isFinite(val) || val >= 50000000) return null;
+  if (allowZero ? val >= 0 : val > 0) return val;
+  return null;
+}
+
+function normalizeDetectedCurrency(token: string | undefined, fullText: string): string {
+  const t = (token || '').trim();
+  if (!t) {
+    if (/฿|\b(THB|baht)\b|บาท/i.test(fullText) && !/\$|\bUSD\b/i.test(fullText)) return 'THB';
+    if (/€|\bEUR\b/i.test(fullText) && !/\$|\bUSD\b/i.test(fullText)) return 'EUR';
+    if (/£|\bGBP\b/i.test(fullText) && !/\$|\bUSD\b/i.test(fullText)) return 'GBP';
+    return 'USD';
+  }
+  const upper = t.toUpperCase();
+  if (t === '฿' || upper === 'THB' || upper === 'BAHT' || t === 'บาท') return 'THB';
+  if (t === '€' || upper === 'EUR') return 'EUR';
+  if (t === '£' || upper === 'GBP') return 'GBP';
+  if (t === 'CA$' || upper === 'CAD') return 'CAD';
+  if (t === 'A$' || upper === 'AUD') return 'AUD';
+  if (t === 'S$' || upper === 'SGD') return 'SGD';
+  if (t === '¥' || upper === 'JPY') return 'JPY';
+  if (upper === 'MYR' || upper === 'RM') return 'MYR';
+  if (t === '₫' || upper === 'VND') return 'VND';
+  if (upper === 'IDR' || upper === 'RP') return 'IDR';
+  if (t === '₩' || upper === 'KRW') return 'KRW';
+  if (t === '₱' || upper === 'PHP') return 'PHP';
+  return 'USD';
+}
+
+function extractConvertedUsdFromBlock(
+  text: string,
+  rates: Record<string, number>,
+  options?: { strictReceiptTotalOnly?: boolean }
+): { usdAmount: number; fxSuffix: string } | null {
+  const strictOnly = Boolean(options?.strictReceiptTotalOnly);
+
+  const savingsMatch = text.match(
+    /\b(?:total\s+savings|you\s+saved|promo\s+savings)[ \t:.\-]*(?:\r?\n[ \t]*)?([$£€฿]?\s*\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/i
+  );
+  const savingsNote = savingsMatch?.[1]
+    ? `Reward / Promo · Saved ${savingsMatch[1].trim()}`
+    : 'Free / $0.00 Order';
+
+  const convert = (rawVal: number, currency: string): { usdAmount: number; fxSuffix: string } => {
+    if (rawVal === 0) {
+      return { usdAmount: 0, fxSuffix: savingsNote };
+    }
+    const code = currency.toUpperCase();
+    if (code === 'USD' || !rates[code] || rates[code] <= 0) {
+      return { usdAmount: Math.round(rawVal * 100) / 100, fxSuffix: '' };
+    }
+    const rate = rates[code];
+    const usd = Math.max(0.01, Math.round((rawVal / rate) * 100) / 100);
+    return {
+      usdAmount: usd,
+      fxSuffix: `${rawVal.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${code} (~$${usd.toFixed(2)} USD @ ${rate.toFixed(2)})`,
+    };
+  };
+
+  // Strip "Total Savings" / "Base for Tax" / "Tax Amount" / "Tax Rate" (even across a table cell newline)
+  // before scanning for Order Total so $0.00 reward orders never confuse Total Savings ($5.79) with Total ($0.00)
+  const sanitizedForTotals = text.replace(
+    /\b(?:total\s+savings|you\s+saved|promo\s+savings|tax\s+amount|base\s+for\s+tax|tax\s+rate)\b[ \t:.\-]*(?:\r?\n[ \t]*)?(?:[$£€฿]?\s*\d{1,7}(?:[.,]\d{3})*(?:\.\d{1,4})?%?)?/gi,
+    ' '
+  );
+
+  // If Wise or multi-currency receipt explicitly states USD amount paid/debited alongside THB, prefer exact USD paid
+  const explicitUsdPaid = sanitizedForTotals.match(
+    /\b(?:you\s+paid|amount\s+(?:paid|debited|charged)|total\s+(?:paid|charged)|source\s+amount)[ \t]*[:\-]?[ \t]*(?:\r?\n[ \t]*)?(?:\$|USD\s*)?(\d{1,6}(?:,\d{3})*(?:\.\d{2}))\s*USD\b/i
+  );
+  if (explicitUsdPaid?.[1]) {
+    const usdVal = parseNumericMoney(explicitUsdPaid[1], true);
+    if (usdVal !== null) {
+      const thbMatch = text.match(/(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)\s*(?:THB|฿|บาท)/i);
+      return {
+        usdAmount: Math.round(usdVal * 100) / 100,
+        fxSuffix: thbMatch ? `${thbMatch[1]} THB` : usdVal === 0 ? savingsNote : '',
+      };
     }
   }
 
-  const allAmounts = Array.from(text.matchAll(/\$\s*(\d{1,6}(?:,\d{3})*\.\d{2})/g))
-    .map((m) => parseFloat(m[1].replace(/,/g, '')))
-    .filter((n) => Number.isFinite(n) && n > 0 && n < 100000);
+  const hasReceiptContext =
+    /\b(receipt|mobile\s+order|order\s*#|order\s+number|check-in\s*#|order\s+is\s+confirmed|order\s+confirmation|subtotal|invoice|payment\s+received|payment\s+confirmation|billing\s+statement|subscription\s+renewal|you\s+sent)\b|ใบเสร็จ|คำสั่งซื้อ|ยอดรวม/i.test(
+      text
+    );
 
-  if (allAmounts.length === 0) return null;
-  return allAmounts[allAmounts.length - 1];
+  // Priority 1: Explicit Order Total / Total / You Sent (supports single table-cell newline & $0.00 reward/promo orders!)
+  const totalPrefixPat =
+    /(\b(?:order\s+total|grand\s+total|total\s+(?:charged|paid|amount|due|billed|including\s+tax)|amount\s+(?:paid|charged|billed)|payment\s+(?:total|amount)|you\s+(?:paid|sent))|(?<!sub)\btotal(?!\s+(?:savings|saved|discount|items|qty|points|rewards|value))\b|ยอดรวม|รวมทั้งสิ้น)[ \t]*[:\-]?[ \t]*(?:\r?\n[ \t]*)?(CA\$|A\$|S\$|[$£€฿¥₩₱₫]|\b(?:USD|THB|GBP|EUR|CAD|AUD|SGD|JPY|MYR|VND|IDR|KRW|PHP)\b)?[ \t]*(\d{1,7}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)[ \t]*(\b(?:USD|THB|GBP|EUR|CAD|AUD|SGD|JPY|MYR|VND|IDR|KRW|PHP|baht)\b|฿|บาท)?/gi;
+
+  const totalMatches = Array.from(sanitizedForTotals.matchAll(totalPrefixPat)).filter((m) => {
+    const label = (m[1] || '').toLowerCase();
+    const currPrefix = (m[2] || '').trim();
+    const numStr = (m[3] || '').trim();
+    const currSuffix = (m[4] || '').trim();
+    const hasExplicitCurrencyOrCents =
+      Boolean(currPrefix || currSuffix) || /[.,]\d{2}$/.test(numStr);
+    if (!hasExplicitCurrencyOrCents) return false;
+    // Bare "Total" in an email requires receipt/order context so random prose "total" never misfires
+    if (strictOnly && label === 'total' && !hasReceiptContext) return false;
+    return true;
+  });
+
+  if (totalMatches.length > 0) {
+    const last = totalMatches[totalMatches.length - 1];
+    const num = parseNumericMoney(last[3], hasReceiptContext);
+    if (num !== null) {
+      const curr = normalizeDetectedCurrency(last[2] || last[4], text);
+      return convert(num, curr);
+    }
+  }
+
+  // Priority 1B: Explicit card/payment charge phrasing ("was charged $15.99", "Receipt for $24.50", "Payment of $40.11")
+  const explicitChargePat =
+    /\b(?:was\s+charged|has\s+been\s+charged|you\s+were\s+charged|payment\s+of|receipt\s+for|charged\s+your\s+\w+)\s+(CA\$|A\$|S\$|[$£€฿¥₩₱₫])\s*(\d{1,7}(?:,\d{3})*\.\d{2})\b/gi;
+  const chargeMatches = Array.from(sanitizedForTotals.matchAll(explicitChargePat));
+  if (chargeMatches.length > 0) {
+    const last = chargeMatches[chargeMatches.length - 1];
+    const num = parseNumericMoney(last[2], false);
+    if (num !== null) {
+      const curr = normalizeDetectedCurrency(last[1], text);
+      return convert(num, curr);
+    }
+  }
+
+  // For Gmail messages, NEVER guess from arbitrary $ numbers (salaries, "$10 off", "$11.99/mo trial")!
+  if (strictOnly) {
+    return null;
+  }
+
+  // Priority 2 (Non-Gmail single-line alerts like Apple Pay notifications): Currency symbol/code attached to positive numbers
+  const anyCurrPat =
+    /(?:(CA\$|A\$|S\$|[$£€฿¥₩₱₫])\s*(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)|(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?)\s*(THB|USD|GBP|EUR|CAD|AUD|SGD|JPY|MYR|VND|IDR|KRW|PHP|baht|฿|บาท)\b|\b(THB|USD|GBP|EUR|CAD|AUD|SGD|JPY|MYR)\s*(\d{1,7}(?:,\d{3})*(?:\.\d{1,2})?))/gi;
+
+  const currMatches = Array.from(sanitizedForTotals.matchAll(anyCurrPat));
+  if (currMatches.length > 0) {
+    const last = currMatches[currMatches.length - 1];
+    const rawNum = last[2] || last[3] || last[6] || '';
+    const rawTok = last[1] || last[4] || last[5] || '';
+    const num = parseNumericMoney(rawNum, false);
+    if (num !== null) {
+      const curr = normalizeDetectedCurrency(rawTok, text);
+      return convert(num, curr);
+    }
+  }
+
+  return null;
+}
+
+function enrichReceiptDescription(
+  merchant: string,
+  subjectLine: string,
+  bodyBlock: string,
+  fxSuffix: string
+): string {
+  const parts: string[] = [];
+  const cleanSubj = subjectLine.replace(/^(?:\s*(?:fwd?|re)\s*:\s*)+/i, '').trim();
+
+  if (merchant === "McDonald's") {
+    const orderNum = bodyBlock.match(/\bOrder#\s*([A-Z0-9-]{2,14})\b/i)?.[1];
+    const itemMatch = bodyBlock.match(
+      /\b(Filet-O-Fish|Big\s*Mac|Quarter\s*Pounder|McChicken|McCrispy|McNuggets|McDouble|Double\s*Cheeseburger|Cheeseburger|McFlurry|Egg\s*McMuffin|Sausage\s*McMuffin|Hash\s*Browns|French\s*Fries|Happy\s*Meal)[^\n$]{0,25}/i
+    )?.[0];
+    parts.push('Mobile Order Receipt');
+    if (orderNum) {
+      parts.push(`Order #${orderNum}`);
+    }
+    if (itemMatch) {
+      parts.push(itemMatch.replace(/\s+\d+P\b/i, '').replace(/\s+/g, ' ').trim());
+    }
+  } else {
+    parts.push(cleanSubj || `Gmail Receipt · ${merchant}`);
+  }
+
+  if (fxSuffix) {
+    parts.push(fxSuffix);
+  }
+  return parts.join(' · ').slice(0, 260);
+}
+
+function merchantsLikelySame(a: string, b: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const na = norm(a);
+  const nb = norm(b);
+  if (!na || !nb) return false;
+  return na.includes(nb.slice(0, 5)) || nb.includes(na.slice(0, 5));
 }
 
 function extractTransactionsDeterministically(
   rawText: string,
   defaultSource: string,
-  existingTransactions: any[]
+  existingTransactions: any[],
+  rates: Record<string, number> = FALLBACK_USD_RATES
 ): { extractedTransactions: any[]; summaryNote: string } {
   const extracted: any[] = [];
   const safeExisting = Array.isArray(existingTransactions) ? existingTransactions : [];
 
-  const findDuplicateId = (dateStr: string, amount: number): string => {
+  const findDuplicateId = (dateStr: string, amount: number, merchant: string, source: string): string => {
     const targetTime = new Date(dateStr).getTime();
     const match = safeExisting.find((tx: any) => {
       const txAmt = Math.abs(Number(tx?.amount) || 0);
-      if (Math.abs(txAmt - amount) >= 0.01) return false;
+      if (Math.abs(txAmt - amount) >= 0.02) return false;
+      if (tx?.source === source && tx?.date !== dateStr) return false;
+      if (!merchantsLikelySame(String(tx?.merchant || ''), merchant)) return false;
       const txTime = new Date(String(tx?.date || '')).getTime();
       if (Number.isNaN(targetTime) || Number.isNaN(txTime)) return tx?.date === dateStr;
       return Math.abs(targetTime - txTime) <= 2 * 86400 * 1000;
@@ -311,34 +650,60 @@ function extractTransactionsDeterministically(
       const fromLine = (block.match(/^From:\s*(.+)$/im)?.[1] || '').trim();
       const subjectLine = (block.match(/^Subject:\s*(.+)$/im)?.[1] || '').trim();
       const dateLine = (block.match(/^Date:\s*(.+)$/im)?.[1] || '').trim();
-      const amount = extractDollarAmountFromBlock(block);
-      if (amount === null) continue;
 
-      const merchant = cleanSenderMerchant(fromLine, subjectLine);
-      const date = normalizeIsoDate(dateLine);
-      const isRefund = /\b(refund|refunded|credit issued|money back)\b/i.test(
-        `${subjectLine} ${block}`
-      );
+      if (isNonTransactionEmail(fromLine, subjectLine, block)) {
+        continue;
+      }
+
+      const money = extractConvertedUsdFromBlock(block, rates, {
+        strictReceiptTotalOnly: true,
+      });
+      if (!money) continue;
+
+      const merchant = cleanSenderMerchant(fromLine, subjectLine, block);
+      // Prefer explicit receipt date inside mobile order body (e.g. "10/30/2026 03:08:29 PM") or inner forwarded Date header, else outer email Date header
+      const bodyReceiptDate =
+        block.match(/\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])\/(20\d{2})\b/)?.[0] ||
+        block.match(/Forwarded message[\s\S]{0,260}?Date:\s*([^\n]+)/i)?.[1]?.trim();
+      const date = normalizeIsoDate(bodyReceiptDate || dateLine);
+      // Avoid matching "Refund Policy" or "request a refund" footers on normal purchase receipts (e.g. Steam)
+      const isRefund =
+        /\b(refund|refunded|credit issued)\b/i.test(subjectLine) ||
+        /\b(refund\s+(?:issued|processed|confirmation|receipt|total|amount)|has\s+been\s+refunded|your\s+refund\s+of)\b/i.test(
+          block
+        );
+      const isSelfTopUp =
+        /\b(added\s+money\s+to\s+your\s+.*account|topped\s+up\s+your\s+balance|credit\s+card\s+autopay)\b/i.test(
+          `${subjectLine} ${block}`
+        );
       const { category, uncertain } = inferCategoryFromText(`${merchant} ${subjectLine} ${block}`);
-      const matchedExistingId = findDuplicateId(date, amount);
+      const matchedExistingId = findDuplicateId(date, money.usdAmount, merchant, 'Gmail');
+      const rawDescription = enrichReceiptDescription(merchant, subjectLine, block, money.fxSuffix);
 
       extracted.push({
         date,
         merchant,
-        rawDescription: subjectLine || `Gmail Receipt · ${merchant}`,
-        amount,
-        paymentMethod: 'Gmail Digital Receipt',
+        rawDescription,
+        amount: money.usdAmount,
+        paymentMethod:
+          merchant === 'Wise'
+            ? 'Wise'
+            : money.usdAmount === 0
+            ? 'Rewards / Promo ($0.00)'
+            : 'Gmail Digital Receipt',
         category,
         status: isRefund ? 'refunded' : 'posted',
-        transactionType: isRefund ? 'refund' : 'purchase',
+        transactionType: isRefund ? 'refund' : isSelfTopUp ? 'transfer' : 'purchase',
         source: 'Gmail',
         matchedExistingId,
-        uncertainCategory: uncertain,
+        uncertainCategory: isSelfTopUp ? false : uncertain,
         uncertaintyPrompt: uncertain
-          ? `Confirm spending category for "${merchant}" ($${amount.toFixed(2)})`
+          ? `Confirm spending category for "${merchant}" ($${money.usdAmount.toFixed(2)} USD${money.fxSuffix ? ` · ${money.fxSuffix}` : ''})`
           : '',
         suggestedCategories: uncertain
-          ? ['Shopping Online', 'Subscriptions', 'Food & Restaurants']
+          ? merchant === 'Wise'
+            ? ['Rent & Housing', 'Bills & Utilities', 'Food & Restaurants']
+            : ['Food & Restaurants', 'Shopping Online', 'Subscriptions']
           : [],
       });
     }
@@ -347,9 +712,51 @@ function extractTransactionsDeterministically(
       extractedTransactions: extracted,
       summaryNote:
         extracted.length > 0
-          ? `Extracted ${extracted.length} receipt transaction(s) from Gmail using local Windows parser.`
-          : 'Scanned Gmail messages, but none contained recognizable dollar receipt totals.',
+          ? `Extracted ${extracted.length} verified receipt/order transaction(s) from Gmail.`
+          : 'Scanned Gmail messages: no completed order receipts or payment charges found (filtered out promos, surveys, and non-receipt alerts).',
     };
+  }
+
+  // Multi-line pasted receipt check (e.g., pasted McDonald's mobile order, Wise receipt, or THB receipt)
+  const hasExplicitReceiptTotal =
+    /\b(order\s+total|grand\s+total|total\s+charged|amount\s+paid|subtotal|you\s+sent)\b|ยอดรวม|รวมทั้งสิ้น/i.test(
+      rawText
+    );
+  if (hasExplicitReceiptTotal) {
+    const money = extractConvertedUsdFromBlock(rawText, rates);
+    if (money) {
+      const date = normalizeIsoDate(rawText);
+      const firstNonEmptyLine =
+        rawText
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .find((l) => l.length >= 2 && !/^\d/.test(l)) || 'Receipt Merchant';
+      const merchant = cleanSenderMerchant('', `${firstNonEmptyLine} ${rawText.slice(0, 120)}`);
+      const { category, uncertain } = inferCategoryFromText(rawText);
+      const source = defaultSource || 'Uploaded Statement';
+      return {
+        extractedTransactions: [
+          {
+            date,
+            merchant,
+            rawDescription: money.fxSuffix
+              ? `${firstNonEmptyLine.slice(0, 110)} · ${money.fxSuffix}`
+              : firstNonEmptyLine.slice(0, 180),
+            amount: money.usdAmount,
+            paymentMethod: merchant === 'Wise' ? 'Wise' : 'Card / Receipt',
+            category,
+            status: 'posted',
+            transactionType: /\brefund\b/i.test(rawText) ? 'refund' : 'purchase',
+            source,
+            matchedExistingId: findDuplicateId(date, money.usdAmount, merchant, source),
+            uncertainCategory: uncertain,
+            uncertaintyPrompt: uncertain ? `Confirm category for "${merchant}"` : '',
+            suggestedCategories: uncertain ? ['Food & Restaurants', 'Bills & Utilities', 'Shopping & Retail'] : [],
+          },
+        ],
+        summaryNote: `Extracted receipt total ($${money.usdAmount.toFixed(2)} USD) for ${merchant}.`,
+      };
+    }
   }
 
   // Fallback line/alert parser for Apple Pay alerts, .eml files, and pasted statements
@@ -358,25 +765,25 @@ function extractTransactionsDeterministically(
     .map((l) => l.trim())
     .filter(Boolean);
   for (const line of lines) {
-    const amt = extractDollarAmountFromBlock(line);
-    if (amt === null) continue;
+    const money = extractConvertedUsdFromBlock(line, rates);
+    if (!money) continue;
     const date = normalizeIsoDate(line);
     const atMerchant =
       line.match(/\bat\s+([A-Za-z0-9 *&'.\-/]{2,45}?)(?:\s*\(|\s*—|\s*-|$)/i)?.[1]?.trim() ||
-      line.slice(0, 40);
+      cleanSenderMerchant('', line.slice(0, 45));
     const { category, uncertain } = inferCategoryFromText(line);
     const source = /apple pay/i.test(line) ? 'Apple Pay' : defaultSource || 'Uploaded Statement';
     extracted.push({
       date,
       merchant: atMerchant,
-      rawDescription: line.slice(0, 180),
-      amount: amt,
+      rawDescription: money.fxSuffix ? `${line.slice(0, 120)} · ${money.fxSuffix}` : line.slice(0, 180),
+      amount: money.usdAmount,
       paymentMethod: source === 'Apple Pay' ? 'Apple Pay' : 'Card / Statement',
       category,
       status: 'posted',
       transactionType: /\brefund\b/i.test(line) ? 'refund' : 'purchase',
       source,
-      matchedExistingId: findDuplicateId(date, amt),
+      matchedExistingId: findDuplicateId(date, money.usdAmount, atMerchant, source),
       uncertainCategory: uncertain,
       uncertaintyPrompt: uncertain ? `Confirm category for "${atMerchant}"` : '',
       suggestedCategories: uncertain ? ['Shopping & Retail', 'Food & Restaurants'] : [],
@@ -388,7 +795,7 @@ function extractTransactionsDeterministically(
     summaryNote:
       extracted.length > 0
         ? `Extracted ${extracted.length} transaction(s) via built-in local parser.`
-        : 'No dollar transactions detected in the provided text.',
+        : 'No completed transaction totals detected in the provided text.',
   };
 }
 
@@ -645,11 +1052,14 @@ async function startServer() {
         }
       }
 
+      const fxRates = await getLiveUsdRates();
+
       if (!hasConfiguredGeminiApiKey() && inlineMediaParts.length === 0) {
         const localParsed = extractTransactionsDeterministically(
           textBlocks.join('\n\n'),
           'Apple Pay',
-          existingTransactions
+          existingTransactions,
+          fxRates
         );
         if (queue.length > 0) writeApplePayQueue([]);
         for (const fileName of processedFilesToMove) {
@@ -677,19 +1087,19 @@ async function startServer() {
           status: t.status,
         }));
 
-      const prompt = `You are LedgerPulse's Automated Local Ingestion Engine on Windows.
+      const prompt = `You are LedgerPulse's Automated Local Ingestion Engine.
 Extract every actual transaction, refund, income, or transfer from the queued Apple Pay notifications and local inbox receipt files below.
 
 STRICT RULES:
-1. Never invent missing transactions. Extract exact dollar figures and dates (default year 2026; today is 2026-11-17).
+1. Never invent missing transactions. Include $0.00 free/reward/points-redeemed mobile order receipts (e.g. McDonald's Mobile Order Receipt with Total $0.00 and Total Savings $5.79 — record amount = 0, NEVER Total Savings, and note the item & savings in rawDescription). Convert ALL non-USD amounts (especially Thai Baht THB / ฿, EUR, GBP, SGD, JPY) into USD using either the exact USD amount shown on the receipt OR live FX rates (1 USD = ${fxRates.THB} THB, ${fxRates.EUR} EUR, ${fxRates.GBP} GBP, ${fxRates.SGD} SGD, ${fxRates.JPY} JPY), and note the original currency amount in rawDescription. Parse US MM/DD/YYYY dates (e.g. 10/30/2026 -> 2026-10-30) accurately; default year 2026 if missing (today is 2026-11-17).
 2. Classify each item into one of these exact categories:
 ${ALLOWED_CATEGORIES.map((c) => `- ${c}`).join('\n')}
-3. Set source to "Apple Pay" for Apple Pay notifications, "Gmail" for .eml email receipts, or "Uploaded Statement" for CSV/PDF files.
-4. Deduplicate against existing ledger records so the same purchase is never double-counted:
+3. External Wise transfers/payments to another person, landlord, or merchant MUST be marked transactionType = "purchase" (counts as spending). Reserve "transfer" strictly for transfers between the user's OWN accounts (credit card autopay, own checking to own savings, topping up own Wise balance).
+4. Set source to "Apple Pay" for Apple Pay notifications, "Gmail" for .eml email receipts, or "Uploaded Statement" for CSV/PDF files.
+5. Deduplicate against existing ledger records ONLY when clearly the same merchant and amount across different sources:
 Existing transactions JSON:
 ${JSON.stringify(existingCompact)}
-If an extracted item matches an existing purchase (same/adjacent date and same amount), set matchedExistingId to that existing transaction's id.
-5. If a merchant descriptor is ambiguous (e.g., cryptic POS code like "SQ *TERMINAL 42B VENTURES"), set uncertainCategory to true, write a short uncertaintyPrompt, and list 2-3 suggestedCategories so it is flagged for review instead of silently misclassified.
+6. If a merchant descriptor or external Wise recipient category is ambiguous, set uncertainCategory to true, write a short uncertaintyPrompt, and list 2-3 suggestedCategories.
 
 Input Feeds:
 ${textBlocks.join('\n\n')}`;
@@ -819,8 +1229,15 @@ ${textBlocks.join('\n\n')}`;
     return res.status(404).end();
   });
 
+  // Live USD FX Rates Endpoint (used for client-side THB->USD and multi-currency conversion)
+  app.get('/api/fx-rates', async (_req, res) => {
+    const rates = await getLiveUsdRates();
+    return res.json({ base: 'USD', rates });
+  });
+
   // Endpoint 1: Parse raw financial records & OCR receipt images / PDFs
   app.post('/api/finance/parse-source', async (req, res) => {
+    const fxRates = await getLiveUsdRates();
     try {
       const {
         rawText = '',
@@ -850,7 +1267,8 @@ ${textBlocks.join('\n\n')}`;
         const localParsed = extractTransactionsDeterministically(
           rawText,
           sourceType || 'Gmail',
-          existingTransactions
+          existingTransactions,
+          fxRates
         );
         return res.json({
           ocrTranscribedText: '',
@@ -874,7 +1292,7 @@ ${textBlocks.join('\n\n')}`;
         .map((a: any) => a.fileName || a.mimeType)
         .join(', ');
 
-      const prompt = `You are a Personal AI Financial Tracking Assistant with high-accuracy optical character recognition (OCR) for receipts, invoices, and PDF statements.
+      const prompt = `You are a Personal AI Financial Tracking Assistant with high-accuracy optical character recognition (OCR) and multi-currency conversion for receipts, emails, Wise transfers, and PDF statements.
 ${
   validAttachments.length > 0
     ? `Perform full OCR on the ${validAttachments.length} attached receipt image(s)/PDF document(s) (${attachmentNames}) and extract every actual transaction, refund, income, or account transfer.`
@@ -882,18 +1300,28 @@ ${
 }
 
 STRICT RULES:
-1. Never invent missing transactions. Only extract transactions explicitly visible in the attached receipt image(s)/PDF(s) or input text.
-2. Use actual exact total transaction amounts (including tax/tip when shown on a receipt total) rather than estimates. If a receipt date is missing the year, assume 2026 (current date is 2026-11-17).
-3. Classify spending into one of these exact categories:
+1. Never invent missing transactions. Extract ONLY real completed purchases, mobile/fast-food orders (including McDonald's Mobile Order Receipts, Wonder orders, GrabFood, Foodpanda, Uber Eats, DoorDash, Thai/English receipts), external Wise money transfers, refunds, income, or self-transfers.
+   - STRICTLY EXCLUDE job/recruiting alerts (e.g., Handshake, LinkedIn, Indeed, "sees you as a top applicant", "Get paid $100 a week"), promotional coupons/discounts ("Get $10 off your order", "15% off your cart"), post-order surveys ("How was your order"), challenges, and free-trial offers ("You're eligible for 4 months free"). NEVER extract salary rates, discount amounts, or future post-trial prices as transactions!
+2. $0.00 REWARDS / PROMO / POINTS ORDERS (CRITICAL FOR MCDONALD'S):
+   - DO NOT skip $0.00 mobile order receipts! When a receipt is a completed reward/points/promo redemption (for example, a McDonald's Mobile Order Receipt for "Filet-O-Fish 1P" where Subtotal = $0.00, Total = $0.00, and Total Savings = $5.79), you MUST extract it with "amount": 0, "transactionType": "purchase", "paymentMethod": "Rewards / Promo ($0.00)", and include the item, order number, and savings in "rawDescription" (e.g., "Mobile Order #LS27 · Filet-O-Fish (Rewards / Promo · Saved $5.79)").
+   - NEVER use "Total Savings" or "You Saved" as the transaction "amount"—always use the actual "Total" paid out of pocket ($0.00 if free).
+3. FOREIGN CURRENCY TO USD CONVERSION (CRITICAL): The ledger's base currency is USD ($). Whenever a transaction or receipt is in Thai Baht (THB / ฿ / บาท) or any other non-USD currency (EUR, GBP, SGD, JPY, MYR, VND, IDR, AUD, CAD, etc.):
+   - If the receipt/Wise email explicitly states the exact USD amount debited/paid alongside THB, use that exact USD amount for "amount".
+   - Otherwise, convert the foreign Order Total / Grand Total into USD using these live exchange rates: 1 USD = ${fxRates.THB} THB, ${fxRates.EUR} EUR, ${fxRates.GBP} GBP, ${fxRates.SGD} SGD, ${fxRates.JPY} JPY, ${fxRates.MYR} MYR, ${fxRates.VND} VND, ${fxRates.IDR} IDR, ${fxRates.AUD} AUD, ${fxRates.CAD} CAD.
+   - Always include the original foreign amount and currency in "rawDescription" (for example: "McDonald's Order · 289.00 THB (~$8.38 USD)" or "Wise External Transfer · 5,000.00 THB").
+   - Always use the final Order Total / Grand Total (not Subtotal or Total Savings). Convert US MM/DD/YYYY dates (such as "10/30/2026" -> "2026-10-30") into YYYY-MM-DD format; if a date is missing the year, assume 2026 (current date is 2026-11-17).
+4. Classify spending into one of these exact categories (e.g., McDonald's, GrabFood, restaurants -> "Food & Restaurants"):
 ${ALLOWED_CATEGORIES.map((c) => `- ${c}`).join('\n')}
-4. Separate transactionType into: "purchase", "refund", "income", or "transfer" (transfers between the user's own accounts must be marked as "transfer" so they are never counted as spending).
-5. Set status to "posted", "pending", or "refunded".
-6. Check against existing transactions to avoid counting the same purchase twice across Gmail, Apple Pay, Bank Statements, and Uploaded Receipts:
+5. EXTERNAL TRANSFERS vs. INTERNAL SELF-TRANSFERS (CRITICAL FOR WISE):
+   - Mark transactionType as "transfer" ONLY when moving money between the user's OWN accounts (such as paying off the user's own credit card bill, moving money from own checking to own savings, or topping up the user's own Wise balance).
+   - External transfers via Wise (e.g., "You sent ... THB to ...", paying another person, landlord, utility, or business via Wise) are EXTERNAL SPENDING — you MUST set transactionType to "purchase" so they count in spending! If the category of an external Wise payment is unclear, set uncertainCategory to true and suggest 2-3 likely categories (e.g., ["Rent & Housing", "Bills & Utilities", "Food & Restaurants"]).
+6. Set status to "posted", "pending", or "refunded".
+7. Check against existing transactions to avoid counting the exact same purchase twice across DIFFERENT sources:
 Existing transactions JSON:
 ${JSON.stringify(existingCompact)}
-If an extracted item matches an existing transaction (same purchase on same/adjacent date and same amount), set matchedExistingId to that existing transaction's id.
-7. If a merchant description is ambiguous and cannot be confidently categorized, set uncertainCategory to true and provide a short question in uncertaintyPrompt asking the user how to categorize it, along with 2-3 suggestedCategories.
-8. If receipt images or PDFs were provided, populate ocrTranscribedText with a concise, accurate transcription of the key merchant header, line items, subtotal/tax/tip, total, date, and card/tender digits read via OCR.
+Only set matchedExistingId if it is clearly the SAME merchant AND same USD amount on the same/adjacent date from another source.
+8. If a merchant description is ambiguous and cannot be confidently categorized, set uncertainCategory to true and provide a short question in uncertaintyPrompt asking the user how to categorize it, along with 2-3 suggestedCategories.
+9. If receipt images or PDFs were provided, populate ocrTranscribedText with a concise, accurate transcription of the key merchant header, line items, total (with original currency and USD equivalent, or $0.00 + savings), date, and payment method read via OCR.
 
 ${
   hasText
@@ -932,17 +1360,16 @@ ${rawText}
                 items: {
                   type: Type.OBJECT,
                   properties: {
-                    date: { type: Type.STRING, description: 'YYYY-MM-DD format' },
-                    merchant: { type: Type.STRING, description: 'Clean merchant or store name' },
+                    date: { type: Type.STRING, description: 'YYYY-MM-DD format (e.g. 2026-10-30 for 10/30/2026)' },
+                    merchant: { type: Type.STRING, description: 'Clean merchant or recipient name' },
                     rawDescription: {
                       type: Type.STRING,
-                      description: 'Original raw receipt/statement descriptor or itemized OCR summary',
+                      description: 'Original raw descriptor including items, reward savings if $0.00, or original foreign currency (e.g. THB) when converted to USD',
                     },
-                    amount: { type: Type.NUMBER, description: 'Positive exact numeric dollar amount' },
+                    amount: { type: Type.NUMBER, description: 'Non-negative exact numeric USD dollar amount paid (>= 0; use 0 for $0.00 free/reward/points-redeemed orders, never Total Savings)' },
                     paymentMethod: {
                       type: Type.STRING,
-                      description:
-                        'e.g., Apple Pay · Chase Sapphire ••4821, Amex Gold ••1094, Cash (Physical Currency)',
+                      description: 'e.g., Wise, Apple Pay, Credit Card, Cash (Physical Currency)',
                     },
                     category: {
                       type: Type.STRING,
@@ -951,7 +1378,7 @@ ${rawText}
                     status: { type: Type.STRING, description: 'posted, pending, or refunded' },
                     transactionType: {
                       type: Type.STRING,
-                      description: 'purchase, refund, income, or transfer',
+                      description: 'purchase (includes external Wise sends), refund, income, or transfer (strictly between own accounts)',
                     },
                     source: {
                       type: Type.STRING,
@@ -992,7 +1419,7 @@ ${rawText}
               summaryNote: {
                 type: Type.STRING,
                 description:
-                  'Concise 1-2 sentence summary of what was extracted via OCR/text and whether any cross-source duplicates or transfers were filtered.',
+                  'Concise 1-2 sentence summary of what was extracted, noting any THB/foreign currency conversions to USD.',
               },
             },
             required: ['extractedTransactions', 'summaryNote'],
@@ -1001,6 +1428,16 @@ ${rawText}
       });
 
       const parsed = JSON.parse((response.text ?? '{}').trim());
+      if (Array.isArray(parsed.extractedTransactions)) {
+        parsed.extractedTransactions = parsed.extractedTransactions.filter(
+          (item: any) =>
+            !isNonTransactionEmail(
+              String(item?.merchant || ''),
+              String(item?.rawDescription || ''),
+              ''
+            )
+        );
+      }
       return res.json(parsed);
     } catch (error: any) {
       console.error('Error in /api/finance/parse-source:', error);
@@ -1009,7 +1446,8 @@ ${rawText}
         const fallbackParsed = extractTransactionsDeterministically(
           rawText,
           sourceType,
-          existingTransactions
+          existingTransactions,
+          fxRates
         );
         return res.json({
           ocrTranscribedText: '',

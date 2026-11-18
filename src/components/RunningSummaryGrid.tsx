@@ -25,7 +25,7 @@ export const RunningSummaryGrid: React.FC<RunningSummaryGridProps> = ({
             Running Spending Summary — November 2026
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Consolidated across Gmail, Apple Pay, Chase Sapphire ••4821, Amex Gold ••1094, and Checking ••8830 ·{' '}
+            Consolidated across Gmail, Apple Pay, bank statements, CSV imports, and scanned receipts ·{' '}
             <span className="font-mono text-slate-700 dark:text-slate-300">
               {metrics.duplicatesEliminatedCount} duplicate records merged
             </span>
@@ -105,9 +105,14 @@ export const RunningSummaryGrid: React.FC<RunningSummaryGridProps> = ({
             </div>
           </div>
           <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-            <span>2 payroll direct deposits</span>
-            <span aria-hidden="true"> · </span>
-            <span className="font-mono text-slate-700 dark:text-slate-300">ACH ••8830</span>
+            {metrics.incomeCountThisMonth === 0 ? (
+              <span>No income deposits recorded yet</span>
+            ) : (
+              <span>
+                {metrics.incomeCountThisMonth} verified income{' '}
+                {metrics.incomeCountThisMonth === 1 ? 'deposit' : 'deposits'}
+              </span>
+            )}
           </div>
         </div>
 
@@ -230,7 +235,7 @@ export const RunningSummaryGrid: React.FC<RunningSummaryGridProps> = ({
             <span>Across 17 elapsed days in Nov</span>
             <span aria-hidden="true"> · </span>
             <span className="font-mono">
-              {formatCurrency((metrics.totalSpendingThisMonth - 2450) / 17)}/d excl. rent
+              {formatCurrency(metrics.nonRentAverageDailySpending)}/d excl. rent
             </span>
           </div>
         </div>

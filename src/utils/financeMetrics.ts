@@ -294,8 +294,10 @@ export interface DashboardSummaryMetrics {
   pendingSpendingThisMonth: number;
   postedSpendingThisMonth: number;
   totalIncomeThisMonth: number;
+  incomeCountThisMonth: number;
   netCashFlow: number;
   totalSubscriptionsMonthly: number;
+  totalRecurringIncludingRentMonthly: number;
   totalSubscriptionsAnnual: number;
   largestSpendingCategory: {
     category: SpendingCategory;
@@ -309,6 +311,7 @@ export interface DashboardSummaryMetrics {
     category: SpendingCategory;
   } | null;
   averageDailySpending: number;
+  nonRentAverageDailySpending: number;
   previousMonthTotalSpending: number;
   momSpendingChangePercent: number;
   momPaceChangePercent: number;
@@ -383,11 +386,19 @@ export function computeDashboardMetrics(
     .reduce((sum, t) => sum + getEffectivePersonalSpend(t), 0);
 
   const totalIncomeThisMonth = novIncome.reduce((sum, t) => sum + t.amount, 0);
+  const incomeCountThisMonth = novIncome.length;
   const netCashFlow = totalIncomeThisMonth - totalSpendingThisMonth;
 
-  // Subscriptions monthly equivalent (excluding rent so users see both recurring bills and subscriptions clearly, or all recurring)
-  const nonRentSubscriptions = subscriptions.filter((s) => s.category !== 'Rent & Housing');
+  const activeSubscriptions = subscriptions.filter((s) => s.status !== 'Canceled');
+  const nonRentSubscriptions = activeSubscriptions.filter((s) => s.category !== 'Rent & Housing');
   const totalSubscriptionsMonthly = nonRentSubscriptions.reduce((sum, s) => {
+    if (s.frequency === 'Annual subscription') {
+      return sum + s.amount / 12;
+    }
+    return sum + s.amount;
+  }, 0);
+
+  const totalRecurringIncludingRentMonthly = activeSubscriptions.reduce((sum, s) => {
     if (s.frequency === 'Annual subscription') {
       return sum + s.amount / 12;
     }
@@ -471,6 +482,13 @@ export function computeDashboardMetrics(
   const averageDailySpending =
     daysElapsedInMonth > 0 ? totalSpendingThisMonth / daysElapsedInMonth : 0;
 
+  const nonRentPurchasesTotal = novPurchases
+    .filter((t) => t.category !== 'Rent & Housing')
+    .reduce((sum, t) => sum + getEffectivePersonalSpend(t), 0);
+  const nonRentNetSpending = Math.max(0, nonRentPurchasesTotal - totalRefundsThisMonth);
+  const nonRentAverageDailySpending =
+    daysElapsedInMonth > 0 ? nonRentNetSpending / daysElapsedInMonth : 0;
+
   const momSpendingChangePercent =
     previousMonthTotalSpending > 0
       ? ((totalSpendingThisMonth - previousMonthTotalSpending) / previousMonthTotalSpending) * 100
@@ -522,8 +540,10 @@ export function computeDashboardMetrics(
       pendingSpendingThisMonth,
       postedSpendingThisMonth,
       totalIncomeThisMonth,
+      incomeCountThisMonth,
       netCashFlow,
       totalSubscriptionsMonthly,
+      totalRecurringIncludingRentMonthly,
       totalSubscriptionsAnnual,
       largestSpendingCategory: {
         category: topCat.category,
@@ -532,6 +552,7 @@ export function computeDashboardMetrics(
       },
       largestIndividualPurchase: topPurchase,
       averageDailySpending,
+      nonRentAverageDailySpending,
       previousMonthTotalSpending,
       momSpendingChangePercent,
       momPaceChangePercent,

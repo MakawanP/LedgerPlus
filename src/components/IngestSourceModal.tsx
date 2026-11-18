@@ -38,6 +38,13 @@ import {
 } from '../utils/financeMetrics';
 import { MerchantLogo } from './MerchantLogo';
 import { useOnlineStatus } from '../hooks/usePWAInstall';
+import {
+  CURRENCY_OPTIONS,
+  SupportedCurrencyCode,
+  convertToUsd,
+  fetchLiveUsdRates,
+  getCachedUsdRates,
+} from '../utils/currencyConverter';
 
 export type IngestModalMode = 'csv_import' | 'ai_parse' | 'export_csv' | 'manual';
 
@@ -227,6 +234,16 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
     summaryNote: string;
   } | null>(null);
 
+  // FX Currency State (for THB -> USD & international CSVs / manual entries)
+  const [fxRates, setFxRates] = useState<Record<string, number>>(() => getCachedUsdRates());
+  const [csvCurrencyMode, setCsvCurrencyMode] = useState<'AUTO' | SupportedCurrencyCode>('AUTO');
+
+  useEffect(() => {
+    if (isOpen) {
+      void fetchLiveUsdRates().then((r) => setFxRates({ ...r }));
+    }
+  }, [isOpen]);
+
   const csvFileInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -235,7 +252,8 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
   const [manualDate, setManualDate] = useState('2026-11-17');
   const [manualMerchant, setManualMerchant] = useState('');
   const [manualAmount, setManualAmount] = useState('');
-  const [manualPayment, setManualPayment] = useState('Chase Sapphire ••4821');
+  const [manualCurrency, setManualCurrency] = useState<SupportedCurrencyCode>('USD');
+  const [manualPayment, setManualPayment] = useState('Credit Card');
   const [manualCategory, setManualCategory] = useState<SpendingCategory>('Food & Restaurants');
   const [manualStatus, setManualStatus] = useState<TransactionStatus>('posted');
   const [manualType, setManualType] = useState<TransactionType>('purchase');
@@ -386,6 +404,8 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
       defaultPaymentMethod: csvDefaultPayment,
       defaultSource: csvDefaultSource,
       existingTransactions,
+      forcedCurrencyCode: csvCurrencyMode,
+      fxRates,
     });
     return baseRows.map((r) => ({
       ...r,
@@ -402,6 +422,8 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
     existingTransactions,
     excludedRowIndices,
     categoryOverrides,
+    csvCurrencyMode,
+    fxRates,
   ]);
 
   const includedCsvRows = useMemo(
@@ -679,8 +701,15 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const numericAmount = parseFloat(manualAmount);
-    if (!manualMerchant.trim() || isNaN(numericAmount) || numericAmount <= 0) return;
+    const rawNumeric = parseFloat(manualAmount);
+    if (!manualMerchant.trim() || isNaN(rawNumeric) || rawNumeric < 0) return;
+
+    const { usdAmount: numericAmount, rateUsed } = convertToUsd(
+      rawNumeric,
+      manualCurrency,
+      undefined,
+      fxRates
+    );
 
     const duplicateMatch = existingTransactions.find(
       (t) =>
@@ -705,12 +734,19 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
         ? '2026-10'
         : '2026-11';
 
+      const fxDetail =
+        manualCurrency !== 'USD'
+          ? ` · ${rawNumeric.toLocaleString('en-US', {
+              maximumFractionDigits: 2,
+            })} ${manualCurrency} (@ ${rateUsed})`
+          : '';
+
       const newTx: Transaction = {
         id: `tx-manual-${Date.now()}`,
         date: manualDate,
         time: '11:30',
         merchant: manualMerchant.trim(),
-        rawDescription: `MANUAL ENTRY · ${manualMerchant.trim().toUpperCase()}`,
+        rawDescription: `MANUAL ENTRY · ${manualMerchant.trim().toUpperCase()}${fxDetail}`,
         amount: numericAmount,
         paymentMethod: manualPayment,
         category: manualCategory,
@@ -723,7 +759,7 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
             source: manualSource,
             referenceId: `MAN-${Date.now().toString().slice(-5)}`,
             capturedAt: '2026-11-17 11:30',
-            rawDescriptor: manualMerchant.trim(),
+            rawDescriptor: `${manualMerchant.trim()}${fxDetail}`,
             statusAtCapture: manualStatus,
           },
         ],
@@ -984,8 +1020,8 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Quick Settings Bar: Sign Convention + Default Card/Account + Source */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* Quick Settings Bar: Sign Convention + Currency Conversion + Default Account + Source */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                     <div>
                       <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
                         Amount Sign Convention
@@ -996,8 +1032,30 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
                         className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                       >
                         <option value="auto">Auto-detect (Recommended)</option>
-                        <option value="negative_is_expense">Negative (-$10) = Purchase (Chase / Bank)</option>
-                        <option value="positive_is_expense">Positive ($10) = Purchase (Amex / Apple Card)</option>
+                        <option value="negative_is_expense">Negative (-$10) = Purchase</option>
+                        <option value="positive_is_expense">Positive ($10) = Purchase</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 dark:text-slate-400 mb-1">
+                        CSV Currency → USD
+                      </label>
+                      <select
+                        value={csvCurrencyMode}
+                        onChange={(e) =>
+                          setCsvCurrencyMode(e.target.value as 'AUTO' | SupportedCurrencyCode)
+                        }
+                        className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
+                      >
+                        <option value="AUTO">Auto-detect (THB/USD/EUR...)</option>
+                        {CURRENCY_OPTIONS.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.code === 'USD'
+                              ? 'USD ($)'
+                              : `${c.code} (${c.symbol}) → USD (@ ${(fxRates[c.code] || 1).toFixed(2)})`}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
@@ -1009,7 +1067,7 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
                         type="text"
                         value={csvDefaultPayment}
                         onChange={(e) => setCsvDefaultPayment(e.target.value)}
-                        placeholder="e.g., Chase Sapphire ••4821"
+                        placeholder="e.g., Wise, Credit Card, Checking"
                         className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100"
                       />
                     </div>
@@ -1735,19 +1793,45 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
                 </div>
                 <div>
                   <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Exact Amount ($)
+                    Amount &amp; Currency
                   </label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    min="0.01"
-                    value={manualAmount}
-                    onChange={(e) => setManualAmount(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full min-h-[44px] sm:min-h-0 px-3 py-2 text-base sm:text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
-                    required
-                  />
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0"
+                      value={manualAmount}
+                      onChange={(e) => setManualAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="flex-1 min-w-0 min-h-[44px] sm:min-h-0 px-3 py-2 text-base sm:text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
+                      required
+                    />
+                    <select
+                      aria-label="Entry currency"
+                      value={manualCurrency}
+                      onChange={(e) =>
+                        setManualCurrency(e.target.value as SupportedCurrencyCode)
+                      }
+                      className="min-h-[44px] sm:min-h-0 px-2.5 py-2 text-base sm:text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
+                    >
+                      {CURRENCY_OPTIONS.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.code} ({c.symbol})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {manualCurrency !== 'USD' && Number(manualAmount) > 0 && (
+                    <div className="text-[11px] font-mono tabular-nums text-emerald-700 dark:text-emerald-400 mt-1">
+                      ≈{' '}
+                      {formatCurrency(
+                        convertToUsd(Number(manualAmount), manualCurrency, undefined, fxRates)
+                          .usdAmount
+                      )}{' '}
+                      USD (1 USD = {(fxRates[manualCurrency] || 1).toFixed(2)} {manualCurrency})
+                    </div>
+                  )}
                 </div>
               </div>
 

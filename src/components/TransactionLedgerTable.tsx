@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ArrowRightLeft,
   Calendar,
   Check,
   ChevronDown,
@@ -27,6 +28,13 @@ import {
   getEffectivePersonalSpend,
   getTransactionSplitSummary,
 } from '../utils/financeMetrics';
+import {
+  CURRENCY_OPTIONS,
+  SupportedCurrencyCode,
+  detectCurrencyCode,
+  fetchLiveUsdRates,
+  getCachedUsdRates,
+} from '../utils/currencyConverter';
 import { MerchantLogo } from './MerchantLogo';
 
 type DateRangePreset =
@@ -39,10 +47,27 @@ type DateRangePreset =
   | 'all_time'
   | 'custom';
 
+export type TransactionFieldPatch = Partial<
+  Pick<
+    Transaction,
+    | 'transactionType'
+    | 'amount'
+    | 'category'
+    | 'rawDescription'
+    | 'uncertainCategory'
+    | 'uncertaintyReason'
+  >
+>;
+
 interface TransactionLedgerTableProps {
   transactions: Transaction[];
   onUpdateCategory: (id: string, category: SpendingCategory) => void;
   onUpdateStatus: (id: string, status: TransactionStatus) => void;
+  onUpdateTransactionFields?: (
+    id: string,
+    patch: TransactionFieldPatch,
+    toastMessage?: string
+  ) => void;
   onDeleteTransactions: (ids: string[], reasonLabel?: string) => void;
   onOpenSplitModal?: (tx: Transaction) => void;
   onToggleSplitParticipantSettled?: (txId: string, participantId: string) => void;
@@ -55,6 +80,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
   transactions,
   onUpdateCategory,
   onUpdateStatus,
+  onUpdateTransactionFields,
   onDeleteTransactions,
   onOpenSplitModal,
   onToggleSplitParticipantSettled,
@@ -63,7 +89,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
   compactLimit,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDateRange, setSelectedDateRange] = useState<DateRangePreset>('nov_all');
+  const [selectedDateRange, setSelectedDateRange] = useState<DateRangePreset>('all_time');
   const [customStartDate, setCustomStartDate] = useState('2026-11-01');
   const [customEndDate, setCustomEndDate] = useState('2026-11-17');
   const [selectedCategory, setSelectedCategory] = useState<'All' | SpendingCategory>('All');
@@ -76,6 +102,240 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [confirmClearAll, setConfirmClearAll] = useState(false);
 
+  // Live FX rates & per-row THB/Foreign -> USD converter inputs
+  const [fxRates, setFxRates] = useState<Record<string, number>>(() => getCachedUsdRates());
+  const [fxCurrencyByTx, setFxCurrencyByTx] = useState<Record<string, SupportedCurrencyCode>>({});
+  const [fxAmountByTx, setFxAmountByTx] = useState<Record<string, string>>({});
+  const [fxRateByTx, setFxRateByTx] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    void fetchLiveUsdRates().then((rates) => setFxRates({ ...rates }));
+  }, []);
+
+  const openRowFxConverter = (tx: Transaction, preferredCurrency?: SupportedCurrencyCode) => {
+    const inferred =
+      preferredCurrency ||
+      detectCurrencyCode(`${tx.merchant} ${tx.rawDescription}`) ||
+      'THB';
+    const currentCurrency = inferred === 'USD' ? 'THB' : inferred;
+    const rate = fxRates[currentCurrency] || 34.5;
+
+    // Extract original THB/foreign amount from rawDescription if already noted, else prefill tx.amount
+    const notedMatch = tx.rawDescription.match(
+      /([\d,]+(?:\.\d{1,2})?)\s*(THB|EUR|GBP|SGD|JPY|MYR|VND|IDR|PHP|KRW|HKD|TWD|AUD|CAD|CHF|INR|CNY|MXN)/i
+    );
+    const initialForeignAmount = notedMatch
+      ? notedMatch[1].replace(/,/g, '')
+      : String(tx.amount);
+
+    setFxCurrencyByTx((prev) => ({ ...prev, [tx.id]: currentCurrency }));
+    setFxAmountByTx((prev) => ({ ...prev, [tx.id]: initialForeignAmount }));
+    setFxRateByTx((prev) => ({ ...prev, [tx.id]: rate.toFixed(2) }));
+    setExpandedTxId(tx.id);
+  };
+
+  const handleApplyRowFxConversion = (tx: Transaction, markAsExternalSpend: boolean) => {
+    if (!onUpdateTransactionFields) return;
+    const currency = fxCurrencyByTx[tx.id] || 'THB';
+    const foreignVal = Math.abs(
+      Number(String(fxAmountByTx[tx.id] ?? tx.amount).replace(/,/g, ''))
+    );
+    const defaultRate = fxRates[currency] || (currency === 'THB' ? 34.5 : 1);
+    const rateVal =
+      currency === 'USD'
+        ? 1
+        : Math.abs(Number(fxRateByTx[tx.id]) || defaultRate) || defaultRate;
+
+    if (!Number.isFinite(foreignVal) || foreignVal <= 0) return;
+
+    const convertedUsd =
+      currency === 'USD'
+        ? Math.round(foreignVal * 100) / 100
+        : Math.round((foreignVal / rateVal) * 100) / 100;
+
+    const cleanBaseDesc = tx.rawDescription
+      .replace(/\s*·?\s*\(?Converted from [^)]+\)?/gi, '')
+      .trim();
+    const nextRawDesc =
+      currency === 'USD'
+        ? cleanBaseDesc
+        : `${cleanBaseDesc} · Converted from ${foreignVal.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })} ${currency} @ ${rateVal.toFixed(2)} ${currency}/USD`;
+
+    const patch: TransactionFieldPatch = {
+      amount: Math.max(0.01, convertedUsd),
+      rawDescription: nextRawDesc,
+    };
+    if (markAsExternalSpend) {
+      patch.transactionType = 'purchase';
+    }
+
+    onUpdateTransactionFields(
+      tx.id,
+      patch,
+      currency === 'USD'
+        ? `Updated "${tx.merchant}" amount to ${formatCurrency(convertedUsd)}${
+            markAsExternalSpend ? ' (External Spend)' : ''
+          }.`
+        : `Converted ${foreignVal.toLocaleString('en-US', {
+            maximumFractionDigits: 2,
+          })} ${currency} → ${formatCurrency(convertedUsd)} USD on "${tx.merchant}"${
+            markAsExternalSpend ? ' & counted as External Spend' : ''
+          }.`
+    );
+  };
+
+  const renderInlineTypeAndFxPanel = (tx: Transaction) => {
+    if (!onUpdateTransactionFields) return null;
+    const activeCurrency = fxCurrencyByTx[tx.id] || 'THB';
+    const rawInputStr = fxAmountByTx[tx.id] ?? String(tx.amount);
+    const activeRateStr =
+      fxRateByTx[tx.id] ??
+      (activeCurrency === 'USD'
+        ? '1.00'
+        : (fxRates[activeCurrency] || 34.5).toFixed(2));
+    const parsedForeign = Math.abs(Number(String(rawInputStr).replace(/,/g, '')) || 0);
+    const parsedRate =
+      activeCurrency === 'USD'
+        ? 1
+        : Math.abs(Number(activeRateStr) || fxRates[activeCurrency] || 34.5);
+    const previewUsd =
+      parsedForeign > 0 && parsedRate > 0
+        ? activeCurrency === 'USD'
+          ? parsedForeign
+          : Math.round((parsedForeign / parsedRate) * 100) / 100
+        : 0;
+
+    return (
+      <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg space-y-3 text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <span className="font-semibold text-slate-900 dark:text-slate-100">
+              Transfer Classification &amp; Currency Converter (THB → USD)
+            </span>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              Switch Wise or bank transfers between external spending and internal self-transfers, or convert THB / foreign amounts into USD.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              Record Type:
+            </label>
+            <select
+              aria-label={`Transaction type for ${tx.merchant}`}
+              value={tx.transactionType}
+              onChange={(e) => {
+                const nextType = e.target.value as TransactionType;
+                onUpdateTransactionFields(
+                  tx.id,
+                  { transactionType: nextType },
+                  nextType === 'purchase'
+                    ? `Marked "${tx.merchant}" as External Spend (included in spending totals).`
+                    : nextType === 'transfer'
+                    ? `Marked "${tx.merchant}" as Internal Self-Transfer (excluded from spend).`
+                    : `Updated "${tx.merchant}" record type to ${nextType}.`
+                );
+              }}
+              className="h-8 px-2.5 text-xs font-medium bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100"
+            >
+              <option value="purchase">External Spend / Purchase (Counts in Spend)</option>
+              <option value="transfer">Internal Self-Transfer (Excluded from Spend)</option>
+              <option value="income">Income / Deposit (+)</option>
+              <option value="refund">Refund / Credit (-)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-end gap-2.5">
+          <div>
+            <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+              Original Amount
+            </label>
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min="0.01"
+              value={rawInputStr}
+              onChange={(e) =>
+                setFxAmountByTx((prev) => ({ ...prev, [tx.id]: e.target.value }))
+              }
+              className="w-32 h-8 px-2.5 font-mono tabular-nums bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+              From Currency
+            </label>
+            <select
+              aria-label={`Source currency for ${tx.merchant}`}
+              value={activeCurrency}
+              onChange={(e) => {
+                const nextCurr = e.target.value as SupportedCurrencyCode;
+                setFxCurrencyByTx((prev) => ({ ...prev, [tx.id]: nextCurr }));
+                setFxRateByTx((prev) => ({
+                  ...prev,
+                  [tx.id]:
+                    nextCurr === 'USD'
+                      ? '1.00'
+                      : (fxRates[nextCurr] || 34.5).toFixed(2),
+                }));
+              }}
+              className="h-8 px-2 font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100"
+            >
+              {CURRENCY_OPTIONS.filter((c) => c.code !== 'USD').map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} ({c.symbol}) → USD
+                </option>
+              ))}
+              <option value="USD">USD ($) Direct Edit</option>
+            </select>
+          </div>
+
+          {activeCurrency !== 'USD' && (
+            <div>
+              <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+                FX Rate ({activeCurrency} per $1 USD)
+              </label>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0.0001"
+                value={activeRateStr}
+                onChange={(e) =>
+                  setFxRateByTx((prev) => ({ ...prev, [tx.id]: e.target.value }))
+                }
+                className="w-28 h-8 px-2.5 font-mono tabular-nums bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-slate-900 dark:text-slate-100"
+              />
+            </div>
+          )}
+
+          <div className="px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-md font-mono tabular-nums text-slate-800 dark:text-slate-200 h-8 inline-flex items-center">
+            = <strong>{formatCurrency(previewUsd)}</strong>&nbsp;USD
+          </div>
+
+          <button
+            type="button"
+            onClick={() => handleApplyRowFxConversion(tx, true)}
+            className="h-8 inline-flex items-center gap-1.5 px-3 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md transition-colors whitespace-nowrap"
+          >
+            <Check className="w-3.5 h-3.5" />
+            <span>
+              {tx.transactionType === 'transfer'
+                ? 'Convert to USD & Count as External Spend'
+                : 'Apply USD Amount'}
+            </span>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const availablePaymentMethods = useMemo(() => {
     const methods = Array.from(new Set(transactions.map((t) => t.paymentMethod))).sort();
     return methods;
@@ -83,7 +343,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||
-    selectedDateRange !== 'nov_all' ||
+    selectedDateRange !== 'all_time' ||
     selectedCategory !== 'All' ||
     selectedPaymentMethod !== 'All' ||
     selectedSource !== 'All' ||
@@ -91,7 +351,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
 
   const handleResetFilters = () => {
     setSearchQuery('');
-    setSelectedDateRange('nov_all');
+    setSelectedDateRange('all_time');
     setCustomStartDate('2026-11-01');
     setCustomEndDate('2026-11-17');
     setSelectedCategory('All');
@@ -126,10 +386,15 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
       if (selectedPaymentMethod !== 'All') {
         if (selectedPaymentMethod === 'GROUP_APPLE_PAY') {
           if (!tx.paymentMethod.toLowerCase().includes('apple pay')) return false;
-        } else if (selectedPaymentMethod === 'GROUP_CHASE') {
-          if (!tx.paymentMethod.toLowerCase().includes('chase')) return false;
-        } else if (selectedPaymentMethod === 'GROUP_AMEX') {
-          if (!tx.paymentMethod.toLowerCase().includes('amex')) return false;
+        } else if (selectedPaymentMethod === 'GROUP_WISE') {
+          if (
+            !tx.paymentMethod.toLowerCase().includes('wise') &&
+            !tx.merchant.toLowerCase().includes('wise')
+          ) {
+            return false;
+          }
+        } else if (selectedPaymentMethod === 'GROUP_CARD') {
+          if (!/card|visa|mastercard|amex|chase/i.test(tx.paymentMethod)) return false;
         } else if (selectedPaymentMethod === 'GROUP_CASH') {
           if (!tx.paymentMethod.toLowerCase().includes('cash')) return false;
         } else if (tx.paymentMethod !== selectedPaymentMethod) {
@@ -388,13 +653,13 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
               onChange={(e) => setSelectedDateRange(e.target.value as DateRangePreset)}
               className="w-full min-h-[44px] md:min-h-0 pl-9 md:pl-8 pr-3 py-2 text-base md:text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl md:rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
             >
-              <option value="nov_all">Date: This Month (Nov 1 – Nov 17)</option>
+              <option value="all_time">Date: All Recorded Dates</option>
+              <option value="nov_all">Date: November 2026</option>
               <option value="today">Date: Today (Nov 17, 2026)</option>
-              <option value="last_3_days">Date: Last 3 Days (Nov 15 – Nov 17)</option>
-              <option value="last_7_days">Date: Last 7 Days (Nov 11 – Nov 17)</option>
+              <option value="last_3_days">Date: Last 3 Days</option>
+              <option value="last_7_days">Date: Last 7 Days</option>
               <option value="early_nov">Date: Early Nov (Nov 1 – Nov 10)</option>
-              <option value="oct_all">Date: Last Month (October 2026)</option>
-              <option value="all_time">Date: All Recorded (Oct – Nov 2026)</option>
+              <option value="oct_all">Date: October 2026</option>
               <option value="custom">Date: Custom Range...</option>
             </select>
           </div>
@@ -427,11 +692,11 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
               className="w-full min-h-[44px] md:min-h-0 pl-9 md:pl-8 pr-3 py-2 text-base md:text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl md:rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:bg-white dark:focus:bg-slate-800 focus:border-slate-900 dark:focus:border-slate-400 transition-colors"
             >
               <option value="All">Payment: All Methods</option>
-              <optgroup label="By Payment Network / Card">
-                <option value="GROUP_APPLE_PAY">Apple Pay (All Cards)</option>
-                <option value="GROUP_CHASE">Chase Sapphire ••4821 (All)</option>
-                <option value="GROUP_AMEX">Amex Gold ••1094 (All)</option>
-                <option value="GROUP_CASH">Cash (Physical Currency)</option>
+              <optgroup label="By Payment Network">
+                <option value="GROUP_APPLE_PAY">Apple Pay</option>
+                <option value="GROUP_WISE">Wise Transfer / Card</option>
+                <option value="GROUP_CARD">Credit / Debit Card</option>
+                <option value="GROUP_CASH">Cash</option>
               </optgroup>
               <optgroup label="Exact Payment Method">
                 {availablePaymentMethods.map((method) => (
@@ -681,12 +946,14 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                   </div>
                 </button>
 
-                {/* Mobile Inline Category, Split Bill, Status & Provenance Drawer */}
+                {/* Mobile Inline Category, FX/Transfer Converter, Split Bill, Status & Provenance Drawer */}
                 {isExpanded && (
                   <div className="px-4 pb-4 pt-1 bg-slate-50/90 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 space-y-3 text-xs">
                     <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 break-all">
                       {tx.rawDescription} · {tx.paymentMethod}
                     </div>
+
+                    {renderInlineTypeAndFxPanel(tx)}
 
                     {splitSummary.isSplit && tx.splitBill && (
                       <div className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl space-y-2">
@@ -975,8 +1242,33 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                                 </span>
                               )}
                               {tx.transactionType === 'transfer' && (
-                                <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                                  · Internal transfer (excluded from spend)
+                                <span className="inline-flex items-center gap-1.5 flex-wrap text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                                  <span>· Internal transfer (excluded from spend)</span>
+                                  {onUpdateTransactionFields && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onUpdateTransactionFields(
+                                            tx.id,
+                                            { transactionType: 'purchase' },
+                                            `Changed "${tx.merchant}" to External Spend (now included in spending totals).`
+                                          )
+                                        }
+                                        className="font-semibold text-emerald-700 dark:text-emerald-400 hover:underline underline-offset-2"
+                                      >
+                                        Count as External Spend
+                                      </button>
+                                      <span aria-hidden="true">·</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => openRowFxConverter(tx, 'THB')}
+                                        className="font-semibold text-slate-700 dark:text-slate-200 hover:underline underline-offset-2"
+                                      >
+                                        Convert THB → USD
+                                      </button>
+                                    </>
+                                  )}
                                 </span>
                               )}
                             </div>
@@ -1114,6 +1406,22 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
 
                       <td className="py-3 pl-2 pr-5 text-right whitespace-nowrap">
                         <div className="inline-flex items-center justify-end gap-1">
+                          {onUpdateTransactionFields && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                isExpanded
+                                  ? setExpandedTxId(null)
+                                  : openRowFxConverter(tx)
+                              }
+                              title={`Convert THB / Foreign Currency to USD or change transfer type on "${tx.merchant}"`}
+                              className="px-2 py-1 inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors whitespace-nowrap"
+                            >
+                              <ArrowRightLeft className="w-3 h-3" />
+                              <span>FX / Type</span>
+                            </button>
+                          )}
+
                           {tx.transactionType === 'purchase' && onOpenSplitModal && (
                             <button
                               type="button"
@@ -1151,6 +1459,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                       <tr className="bg-slate-50/90 dark:bg-slate-800/50">
                         <td colSpan={9} className="px-6 py-3.5 border-l-0">
                           <div className="space-y-3">
+                            {renderInlineTypeAndFxPanel(tx)}
                             {splitSummary.isSplit && tx.splitBill && (
                               <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg space-y-2">
                                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
