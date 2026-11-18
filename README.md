@@ -59,9 +59,9 @@ Generates:
 - `release/LedgerPulse-Windows-v1.0.0.zip` — Distributable Windows release archive (also served at `GET /api/release/windows.zip`)
 
 ### Option C — Automated GitHub Releases (`.github/workflows/release-windows.yml`)
-Push a version tag (e.g. `git tag v1.0.0 && git push origin v1.0.0`) or trigger the **Release Windows Desktop Package** workflow manually in GitHub Actions to build and publish both:
-- **`LedgerPulse-Windows-Portable-v*.zip`** (lightweight package using system Node.js)
-- **`LedgerPulse-Windows-Standalone-x64-v*.zip`** (self-contained zero-prerequisite bundle with `runtime\node.exe` embedded)
+Every push/sync to `main` (or `v*` tag / manual **Run workflow** dispatch in GitHub Actions) automatically builds on `windows-latest` and publishes to **[GitHub Releases](https://github.com/MakawanP/LedgerPulse/releases)**:
+- **`LedgerPulse-Windows-x64-Standalone-v*.zip`** (self-contained zero-prerequisite bundle with `runtime\node.exe` embedded)
+- **`LedgerPulse-Windows-v*.zip`** (lightweight portable package using system Node.js)
 
 ---
 
