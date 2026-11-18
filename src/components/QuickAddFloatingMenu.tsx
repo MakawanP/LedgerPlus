@@ -4,6 +4,7 @@ import {
   Banknote,
   Check,
   Layers,
+  Mic,
   Plus,
   Split,
   X,
@@ -16,6 +17,9 @@ import {
   Transaction,
 } from '../types/finance';
 import { formatCurrency } from '../utils/financeMetrics';
+import { fetchLiveUsdRates, getCachedUsdRates } from '../utils/currencyConverter';
+import { parseSpokenTransactionDraft } from '../utils/spokenExpenseParser';
+import { VoiceRecorderControl } from './VoiceRecorderControl';
 
 interface QuickAddFloatingMenuProps {
   existingTransactions: Transaction[];
@@ -25,6 +29,7 @@ interface QuickAddFloatingMenuProps {
   ) => void;
   onOpenFullIngestModal: () => void;
   onViewLedger?: () => void;
+  voiceLaunchSignal?: number;
 }
 
 type QuickMenuState = 'closed' | 'actions' | 'cash_expense' | 'one_off_income';
@@ -34,9 +39,13 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
   onQuickCommitTransaction,
   onOpenFullIngestModal,
   onViewLedger,
+  voiceLaunchSignal,
 }) => {
   const [menuState, setMenuState] = useState<QuickMenuState>('closed');
+  const [autoStartVoiceSignal, setAutoStartVoiceSignal] = useState<number>(0);
+  const [fxRates, setFxRates] = useState<Record<string, number>>(() => getCachedUsdRates());
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const lastLaunchSignalRef = useRef<number | undefined>(undefined);
 
   // Shared Form Fields
   const [date, setDate] = useState('2026-11-17');
@@ -51,6 +60,12 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
   const [splitFriendName, setSplitFriendName] = useState('');
   const [splitFriendAmount, setSplitFriendAmount] = useState('');
   const [splitItemNote, setSplitItemNote] = useState('');
+
+  useEffect(() => {
+    if (menuState !== 'closed') {
+      void fetchLiveUsdRates().then((rates) => setFxRates({ ...rates }));
+    }
+  }, [menuState]);
 
   // Close menu on Escape key or outside click on desktop
   useEffect(() => {
@@ -76,7 +91,7 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
     };
   }, [menuState]);
 
-  const openCashExpenseForm = (enableSplit = false) => {
+  const openCashExpenseForm = (enableSplit = false, startMic = false) => {
     setDate('2026-11-17');
     setMerchantOrSource('');
     setAmount('');
@@ -90,7 +105,21 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
     setSplitFriendAmount('');
     setSplitItemNote('');
     setMenuState('cash_expense');
+    if (startMic) {
+      setAutoStartVoiceSignal((prev) => prev + 1);
+    }
   };
+
+  useEffect(() => {
+    if (
+      voiceLaunchSignal &&
+      voiceLaunchSignal > 0 &&
+      lastLaunchSignalRef.current !== voiceLaunchSignal
+    ) {
+      lastLaunchSignalRef.current = voiceLaunchSignal;
+      openCashExpenseForm(false, true);
+    }
+  }, [voiceLaunchSignal]);
 
   const openOneOffIncomeForm = () => {
     setDate('2026-11-17');
@@ -101,6 +130,37 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
     setNote('');
     setSplitEnabled(false);
     setMenuState('one_off_income');
+  };
+
+  const handleVoiceTranscribed = (transcript: string) => {
+    const draft = parseSpokenTransactionDraft(transcript, fxRates);
+    if (draft.transactionType === 'income') {
+      setMenuState('one_off_income');
+      setSplitEnabled(false);
+    } else if (menuState !== 'cash_expense') {
+      setMenuState('cash_expense');
+    }
+
+    if (draft.merchant) {
+      setMerchantOrSource(draft.merchant);
+    }
+    if (draft.usdAmount !== null) {
+      setAmount(draft.usdAmount.toFixed(2));
+    }
+    if (draft.transactionType !== 'income') {
+      setCategory(draft.category);
+    }
+    setDate(draft.date);
+    setPaymentOrAccount(draft.paymentMethod);
+    setNote(draft.memo);
+
+    if (draft.splitFriendName && draft.transactionType !== 'income') {
+      setSplitEnabled(true);
+      setSplitFriendName(draft.splitFriendName);
+      if (draft.splitFriendAmount && draft.splitFriendAmount > 0) {
+        setSplitFriendAmount(draft.splitFriendAmount.toFixed(2));
+      }
+    }
   };
 
   const numericTotal = parseFloat(amount) || 0;
@@ -119,7 +179,7 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const numericAmount = parseFloat(amount);
-    if (!merchantOrSource.trim() || isNaN(numericAmount) || numericAmount <= 0) {
+    if (!merchantOrSource.trim() || isNaN(numericAmount) || numericAmount < 0) {
       return;
     }
 
@@ -272,6 +332,14 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="p-4 space-y-3 text-xs overflow-y-auto">
+              <VoiceRecorderControl
+                variant="card"
+                buttonLabel="Record Voice"
+                autoStartSignal={autoStartVoiceSignal}
+                placeholderHint='Speak naturally: "Spent $14.50 at Starbucks with Apple Pay" or "Sent 3,500 THB on Wise for electricity"'
+                onTranscribed={handleVoiceTranscribed}
+              />
+
               {/* Merchant / Income Payer + Exact Total Paid */}
               <div className="grid grid-cols-12 gap-2.5">
                 <div className="col-span-7">
@@ -300,7 +368,7 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
                     type="number"
                     inputMode="decimal"
                     step="0.01"
-                    min="0.01"
+                    min="0"
                     required
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
@@ -378,6 +446,7 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
                       <option value="Wise">Wise</option>
                       <option value="Credit Card">Credit Card</option>
                       <option value="Debit / Checking">Debit / Checking</option>
+                      <option value="Rewards / Promo ($0.00)">Rewards / Promo ($0.00)</option>
                     </select>
                   </div>
                 )}
@@ -530,7 +599,22 @@ export const QuickAddFloatingMenu: React.FC<QuickAddFloatingMenuProps> = ({
             <button
               type="button"
               role="menuitem"
-              onClick={() => openCashExpenseForm(false)}
+              onClick={() => openCashExpenseForm(false, true)}
+              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-between transition-colors"
+            >
+              <span className="flex items-center gap-2.5">
+                <Mic className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                <span>Voice Record Transaction</span>
+              </span>
+              <span className="text-[11px] font-mono text-emerald-700 dark:text-emerald-400">
+                Mic
+              </span>
+            </button>
+
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => openCashExpenseForm(false, false)}
               className="w-full px-3 py-2 text-left text-xs font-medium text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-between transition-colors"
             >
               <span className="flex items-center gap-2.5">

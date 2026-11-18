@@ -45,6 +45,8 @@ import {
   fetchLiveUsdRates,
   getCachedUsdRates,
 } from '../utils/currencyConverter';
+import { parseSpokenTransactionDraft } from '../utils/spokenExpenseParser';
+import { VoiceRecorderControl } from './VoiceRecorderControl';
 
 export type IngestModalMode = 'csv_import' | 'ai_parse' | 'export_csv' | 'manual';
 
@@ -1568,13 +1570,26 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
                 </div>
               )}
 
-              {/* Optional Raw Text / Email Input */}
+              {/* Voice Dictation or Raw Text / Email Input */}
+              <VoiceRecorderControl
+                variant="card"
+                buttonLabel="Dictate Expenses"
+                placeholderHint='Dictate one or multiple purchases (e.g., "Coffee at Blue Bottle $6.75 and Uber home $18.40") to transcribe and extract automatically.'
+                disabled={!isOnline}
+                onTranscribed={(spokenText) => {
+                  setSourceType('Cash / Manual');
+                  setRawText((prev) =>
+                    prev.trim() ? `${prev.trim()}\n${spokenText}` : spokenText
+                  );
+                }}
+              />
+
               <div>
                 <label
                   htmlFor="raw-financial-text"
                   className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5"
                 >
-                  Or paste email receipt text or card alert text (optional):
+                  Transcribed voice note, email receipt text, or card alert text:
                 </label>
                 <textarea
                   id="raw-financial-text"
@@ -1582,7 +1597,7 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
                   value={rawText}
                   onChange={(e) => setRawText(e.target.value)}
                   className="w-full p-3 text-base sm:text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:bg-white dark:focus:bg-slate-900 focus:border-slate-900 dark:focus:border-slate-400"
-                  placeholder="Optional: Paste email receipt text or statement lines..."
+                  placeholder="Speak above or paste email receipt text / statement lines..."
                 />
               </div>
 
@@ -1765,6 +1780,29 @@ export const IngestSourceModal: React.FC<IngestSourceModalProps> = ({
             </div>
           ) : mode === 'manual' ? (
             <form onSubmit={handleManualSubmit} className="p-5 sm:p-6 space-y-4 text-xs">
+              {isOnline && (
+                <VoiceRecorderControl
+                  variant="card"
+                  buttonLabel="Auto-Fill by Voice"
+                  placeholderHint='Speak to auto-fill fields: "Sent 3,500 THB on Wise for electricity" or "Lunch at Chipotle $13.25 with Apple Pay"'
+                  onTranscribed={(spokenText) => {
+                    const draft = parseSpokenTransactionDraft(spokenText, fxRates);
+                    setManualDate(draft.date);
+                    if (draft.merchant) setManualMerchant(draft.merchant);
+                    if (draft.amountInOriginalCurrency !== null) {
+                      setManualAmount(String(draft.amountInOriginalCurrency));
+                    }
+                    setManualCurrency(draft.currencyCode);
+                    setManualCategory(draft.category);
+                    setManualPayment(draft.paymentMethod);
+                    setManualType(draft.transactionType);
+                    setManualSource(
+                      draft.paymentMethod === 'Apple Pay' ? 'Apple Pay' : 'Cash / Manual'
+                    );
+                  }}
+                />
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">

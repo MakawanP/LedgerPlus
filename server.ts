@@ -175,6 +175,7 @@ function hasConfiguredGeminiApiKey(): boolean {
 function getGeminiClient() {
   return new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY,
+    apiVersion: 'v1beta',
     httpOptions: {
       headers: {
         'User-Agent': 'aistudio-build',
@@ -1233,6 +1234,97 @@ ${textBlocks.join('\n\n')}`;
   app.get('/api/fx-rates', async (_req, res) => {
     const rates = await getLiveUsdRates();
     return res.json({ base: 'USD', rates });
+  });
+
+  // Audio Transcription Endpoint using gemini-3.5-transcribe
+  app.post('/api/audio/transcribe', async (req, res) => {
+    try {
+      const { base64Audio, mimeType } = req.body || {};
+
+      if (typeof base64Audio !== 'string' || base64Audio.trim().length === 0) {
+        return res.status(400).json({
+          error: 'No audio data received. Please record or upload a non-empty audio clip.',
+        });
+      }
+
+      if (!hasConfiguredGeminiApiKey()) {
+        return res.status(400).json({
+          error:
+            'Gemini API key is not configured. Please check your API key in the Settings > Secrets panel.',
+        });
+      }
+
+      // Strip data URL prefix if present and normalize MIME type for cross-browser MediaRecorder (Chrome webm, iOS Safari mp4)
+      const cleanBase64 = base64Audio.includes(',')
+        ? base64Audio.split(',')[1].trim()
+        : base64Audio.trim();
+
+      const rawMime = typeof mimeType === 'string' && mimeType.trim() ? mimeType : 'audio/webm';
+      let baseMime = rawMime.split(';')[0].trim().toLowerCase();
+      if (baseMime === 'audio/x-m4a' || baseMime === 'audio/m4a' || baseMime === 'audio/mp4a-latm') {
+        baseMime = 'audio/mp4';
+      } else if (baseMime === 'audio/x-wav') {
+        baseMime = 'audio/wav';
+      } else if (!baseMime.startsWith('audio/')) {
+        baseMime = 'audio/webm';
+      }
+
+      const ai = getGeminiClient();
+      const audioPart = {
+        inlineData: {
+          mimeType: baseMime,
+          data: cleanBase64,
+        },
+      };
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.5-transcribe',
+        contents: {
+          parts: [
+            audioPart,
+            {
+              text: 'Transcribe this audio accurately into text. Preserve exact numbers, decimals, currency symbols or codes (such as $, THB, Baht, EUR, GBP, JPY), dates, and merchant or person names. Return only the spoken words without commentary.',
+            },
+          ],
+        },
+      });
+
+      const transcript = (response.text ?? '').trim();
+      return res.json({
+        transcript,
+        mimeType: baseMime,
+      });
+    } catch (error: any) {
+      console.error('Error in /api/audio/transcribe:', error);
+      const status = Number(error?.status || error?.code) || 500;
+      const rawMessage = String(error?.message || 'Failed to transcribe audio recording.');
+
+      if (
+        status === 400 &&
+        /API_KEY_INVALID|API key not valid/i.test(rawMessage)
+      ) {
+        return res.status(400).json({
+          error:
+            'Invalid Gemini API key. Please check or select a valid API key in the Settings > Secrets panel.',
+        });
+      }
+      if (status === 403 || /PERMISSION_DENIED/i.test(rawMessage)) {
+        return res.status(403).json({
+          error:
+            'Permission denied by Gemini API. Please verify your API key in the Settings > Secrets panel.',
+        });
+      }
+      if (status === 429 || /RESOURCE_EXHAUSTED/i.test(rawMessage)) {
+        return res.status(429).json({
+          error:
+            'Transcription rate limit reached. Upgrading to a billing-enabled API key in Settings > Secrets increases quota.',
+        });
+      }
+
+      return res.status(status >= 400 && status < 600 ? status : 500).json({
+        error: rawMessage,
+      });
+    }
   });
 
   // Endpoint 1: Parse raw financial records & OCR receipt images / PDFs

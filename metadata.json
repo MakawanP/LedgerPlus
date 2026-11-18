@@ -1,6 +1,6 @@
 {
   "name": "LedgerPulse Personal Finance Tracker",
   "description": "Local-first Windows personal AI finance and spending tracker with local disk storage and automated notification & receipt ingestion.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

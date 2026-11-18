@@ -6,6 +6,7 @@ import {
   Download,
   FileSpreadsheet,
   Layers,
+  Mic,
   Moon,
   Plus,
   RotateCcw,
@@ -199,6 +200,8 @@ export default function App() {
       setToastBanner((prev) => (prev === msg ? null : prev));
     }, 4800);
   }, []);
+
+  const [voiceLaunchSignal, setVoiceLaunchSignal] = useState(0);
 
   const openIngestModal = useCallback((mode: IngestModalMode = 'csv_import') => {
     setIngestModalMode(mode);
@@ -1536,6 +1539,18 @@ export default function App() {
                 )}
               </button>
 
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDataActionsMenuOpen(false);
+                  setVoiceLaunchSignal((prev) => prev + 1);
+                }}
+                className="min-h-[36px] inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                <Mic className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
+                <span>Voice Record</span>
+              </button>
+
               <div ref={dataActionsMenuRef} className="relative">
                 <button
                   type="button"
@@ -1559,6 +1574,24 @@ export default function App() {
                     aria-label="Import, Export & Scan Options"
                     className="absolute right-0 mt-1.5 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg p-1.5 z-40 text-xs space-y-0.5"
                   >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsDataActionsMenuOpen(false);
+                        setVoiceLaunchSignal((prev) => prev + 1);
+                      }}
+                      className="w-full px-3 py-2 text-left font-medium text-slate-800 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center justify-between transition-colors"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Mic className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                        <span>Voice Record Expense</span>
+                      </span>
+                      <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400">
+                        Mic
+                      </span>
+                    </button>
+
                     <button
                       type="button"
                       role="menuitem"
@@ -1912,6 +1945,7 @@ export default function App() {
         existingTransactions={transactions}
         onQuickCommitTransaction={handleCommitTransactions}
         onOpenFullIngestModal={() => openIngestModal('csv_import')}
+        voiceLaunchSignal={voiceLaunchSignal}
       />
 
       {/* Thumb-Friendly Mobile Bottom Navigation (<768px) */}

@@ -18,6 +18,7 @@ import {
   formatCurrency,
 } from '../utils/financeMetrics';
 import { NavTabId } from './MobileBottomNav';
+import { VoiceRecorderControl } from './VoiceRecorderControl';
 
 interface SpendingInsightsViewProps {
   insights: SpendingInsight[];
@@ -131,14 +132,24 @@ export const SpendingInsightsView: React.FC<SpendingInsightsViewProps> = ({
               placeholder="Ask about your spending (e.g., 'Where can I cut $150/month?')"
               className="flex-1 px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:bg-white dark:focus:bg-slate-900 focus:border-slate-900 dark:focus:border-slate-400"
             />
-            <button
-              type="submit"
-              disabled={isLoadingAudit || !userQuestion.trim()}
-              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>Ask</span>
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <VoiceRecorderControl
+                variant="inline"
+                buttonLabel="Voice"
+                disabled={isLoadingAudit}
+                onTranscribed={(spokenQuestion) => {
+                  setUserQuestion(spokenQuestion);
+                }}
+              />
+              <button
+                type="submit"
+                disabled={isLoadingAudit || !userQuestion.trim()}
+                className="min-h-[36px] inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Ask</span>
+              </button>
+            </div>
           </form>
 
           {/* Quick Preset Questions */}
