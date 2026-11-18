@@ -54,13 +54,27 @@ export interface SourceRecord {
   statusAtCapture: TransactionStatus;
 }
 
+export interface SplitParticipant {
+  id: string;
+  friendName: string;
+  itemNote?: string;
+  amountOwed: number;
+  status: 'owed' | 'settled';
+  settledDate?: string;
+}
+
+export interface BillSplitDetails {
+  participants: SplitParticipant[];
+  note?: string;
+}
+
 export interface Transaction {
   id: string;
   date: string; // YYYY-MM-DD
   time?: string; // HH:mm
   merchant: string;
   rawDescription: string;
-  amount: number; // Always positive exact figure
+  amount: number; // Full amount paid on card / cash
   paymentMethod: string;
   category: SpendingCategory;
   status: TransactionStatus;
@@ -85,6 +99,10 @@ export interface Transaction {
    */
   anomalyNote?: string;
   isRecurring?: boolean;
+  /**
+   * Optional bill split tracking when you cover a friend's share (e.g. paid $20 coffee, friend owes $10).
+   */
+  splitBill?: BillSplitDetails;
   monthKey: '2026-11' | '2026-10';
 }
 

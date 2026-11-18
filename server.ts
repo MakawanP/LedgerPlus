@@ -3,7 +3,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createServer as createViteServer } from 'vite';
+import zlib from 'zlib';
 import { GoogleGenAI, Type } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,6 +14,107 @@ const INBOX_DIR = path.join(DATA_DIR, 'inbox');
 const PROCESSED_INBOX_DIR = path.join(INBOX_DIR, 'processed');
 const VAULT_FILE_PATH = path.join(DATA_DIR, 'local-ledger-vault.json');
 const APPLE_PAY_QUEUE_PATH = path.join(DATA_DIR, 'apple-pay-queue.json');
+const PREBUILT_WINDOWS_ZIP_PATH = path.join(
+  __dirname,
+  'release',
+  'LedgerPulse-Windows-v1.0.0.zip'
+);
+
+const ZIP_CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) {
+      c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    }
+    table[i] = c >>> 0;
+  }
+  return table;
+})();
+
+function computeCrc32(buf: Buffer): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) {
+    crc = ZIP_CRC32_TABLE[(crc ^ buf[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function buildZipBuffer(entries: Array<{ name: string; data: Buffer }>): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+
+  const now = new Date();
+  const dosTime =
+    ((now.getHours() & 0x1f) << 11) |
+    ((now.getMinutes() & 0x3f) << 5) |
+    ((now.getSeconds() >> 1) & 0x1f);
+  const dosDate =
+    (((now.getFullYear() - 1980) & 0x7f) << 9) |
+    (((now.getMonth() + 1) & 0x0f) << 5) |
+    (now.getDate() & 0x1f);
+
+  for (const entry of entries) {
+    const nameBuf = Buffer.from(entry.name, 'utf-8');
+    const crc = computeCrc32(entry.data);
+    const deflated = zlib.deflateRawSync(entry.data, { level: 6 });
+    const useDeflate = deflated.length < entry.data.length;
+    const payload = useDeflate ? deflated : entry.data;
+    const method = useDeflate ? 8 : 0;
+
+    const local = Buffer.alloc(30 + nameBuf.length);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(method, 8);
+    local.writeUInt16LE(dosTime, 10);
+    local.writeUInt16LE(dosDate, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(payload.length, 18);
+    local.writeUInt32LE(entry.data.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26);
+    local.writeUInt16LE(0, 28);
+    nameBuf.copy(local, 30);
+
+    const central = Buffer.alloc(46 + nameBuf.length);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(method, 10);
+    central.writeUInt16LE(dosTime, 12);
+    central.writeUInt16LE(dosDate, 14);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(payload.length, 20);
+    central.writeUInt32LE(entry.data.length, 24);
+    central.writeUInt16LE(nameBuf.length, 28);
+    central.writeUInt16LE(0, 30);
+    central.writeUInt16LE(0, 32);
+    central.writeUInt16LE(0, 34);
+    central.writeUInt16LE(0, 36);
+    central.writeUInt32LE(0, 38);
+    central.writeUInt32LE(offset, 42);
+    nameBuf.copy(central, 46);
+
+    localParts.push(local, payload);
+    centralParts.push(central);
+    offset += local.length + payload.length;
+  }
+
+  const centralDir = Buffer.concat(centralParts);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(entries.length, 8);
+  eocd.writeUInt16LE(entries.length, 10);
+  eocd.writeUInt32LE(centralDir.length, 12);
+  eocd.writeUInt32LE(offset, 16);
+  eocd.writeUInt16LE(0, 20);
+
+  return Buffer.concat([...localParts, centralDir, eocd]);
+}
 
 function ensureLocalDataDirs() {
   fs.mkdirSync(PROCESSED_INBOX_DIR, { recursive: true });
@@ -781,7 +882,68 @@ ${userQuestion ? `User specific question: "${userQuestion}"` : 'Provide a compre
     }
   });
 
+  // Downloadable Windows 10/11 Desktop Release Package (.zip)
+  app.get('/api/release/windows.zip', (_req, res) => {
+    try {
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename="LedgerPulse-Windows-v1.0.0.zip"'
+      );
+
+      if (fs.existsSync(PREBUILT_WINDOWS_ZIP_PATH)) {
+        return res.sendFile(PREBUILT_WINDOWS_ZIP_PATH);
+      }
+
+      // Fallback on-demand Windows launcher bundle if prebuilt release/ zip is absent
+      const filesToInclude: Array<{ src: string; zipName: string; crlf?: boolean }> = [
+        { src: path.join(__dirname, 'windows', 'Install-Windows-App.bat'), zipName: 'LedgerPulse-Windows/Install-Windows-App.bat', crlf: true },
+        { src: path.join(__dirname, 'windows', 'LedgerPulse.vbs'), zipName: 'LedgerPulse-Windows/LedgerPulse.vbs', crlf: true },
+        { src: path.join(__dirname, 'windows', 'Stop-LedgerPulse-Server.bat'), zipName: 'LedgerPulse-Windows/Stop-LedgerPulse-Server.bat', crlf: true },
+        { src: path.join(__dirname, 'start-windows-app.bat'), zipName: 'LedgerPulse-Windows/Start-LedgerPulse.bat', crlf: true },
+        { src: path.join(__dirname, 'public', 'ledgerpulse.ico'), zipName: 'LedgerPulse-Windows/ledgerpulse.ico' },
+        { src: path.join(__dirname, '.env.example'), zipName: 'LedgerPulse-Windows/.env.example', crlf: true },
+      ];
+
+      const zipEntries: Array<{ name: string; data: Buffer }> = [];
+      for (const item of filesToInclude) {
+        if (fs.existsSync(item.src)) {
+          const raw = fs.readFileSync(item.src);
+          const data = item.crlf
+            ? Buffer.from(raw.toString('utf-8').replace(/\r?\n/g, '\r\n'), 'utf-8')
+            : raw;
+          zipEntries.push({ name: item.zipName, data });
+        }
+      }
+
+      zipEntries.push({
+        name: 'LedgerPulse-Windows/WINDOWS-QUICKSTART.txt',
+        data: Buffer.from(
+          [
+            'LedgerPulse for Windows 10 / 11',
+            'Repository: https://github.com/MakawanP/LedgerPulse',
+            '',
+            '1. Extract this ZIP folder anywhere on your Windows PC.',
+            '2. For the full standalone build (with embedded node.exe), download from:',
+            '   https://github.com/MakawanP/LedgerPulse/releases',
+            '   or run "npm run release:windows" from the cloned repository.',
+            '3. Double-click Install-Windows-App.bat to add Desktop & Start Menu shortcuts.',
+          ].join('\r\n'),
+          'utf-8'
+        ),
+      });
+
+      return res.send(buildZipBuffer(zipEntries));
+    } catch (error: any) {
+      return res.status(500).json({
+        error: error?.message || 'Failed to serve Windows release package.',
+      });
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
+    const vitePkg = 'vite';
+    const { createServer: createViteServer } = await import(vitePkg);
     const vite = await createViteServer({
       server: {
         middlewareMode: true,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, HelpCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, HelpCircle, Trash2 } from 'lucide-react';
 import {
   ALL_SPENDING_CATEGORIES,
   SpendingCategory,
@@ -12,12 +12,14 @@ interface UncertainQueuePanelProps {
   transactions: Transaction[];
   onResolveCategory: (transactionId: string, category: SpendingCategory) => void;
   onDismissAnomaly: (transactionId: string, action: 'keep' | 'remove_duplicate') => void;
+  onDeleteTransaction: (transactionId: string) => void;
 }
 
 export const UncertainQueuePanel: React.FC<UncertainQueuePanelProps> = ({
   transactions,
   onResolveCategory,
   onDismissAnomaly,
+  onDeleteTransaction,
 }) => {
   const uncertainItems = transactions.filter(
     (t) => t.monthKey === '2026-11' && t.uncertainCategory
@@ -121,6 +123,16 @@ export const UncertainQueuePanel: React.FC<UncertainQueuePanelProps> = ({
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={() => onDeleteTransaction(tx.id)}
+                title={`Delete "${tx.merchant}"`}
+                aria-label={`Delete transaction ${tx.merchant}`}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/70 transition-colors whitespace-nowrap shrink-0"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete</span>
+              </button>
             </div>
           </div>
         ))}
@@ -171,6 +183,16 @@ export const UncertainQueuePanel: React.FC<UncertainQueuePanelProps> = ({
                 className="px-3 py-1.5 text-xs font-medium bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors whitespace-nowrap shrink-0"
               >
                 Acknowledge & Keep
+              </button>
+              <button
+                type="button"
+                onClick={() => onDeleteTransaction(tx.id)}
+                title={`Delete "${tx.merchant}"`}
+                aria-label={`Delete transaction ${tx.merchant}`}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/70 transition-colors whitespace-nowrap shrink-0"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete</span>
               </button>
             </div>
           </div>

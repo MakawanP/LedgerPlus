@@ -1,9 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import {
   Check,
+  Layers,
+  Pencil,
   PiggyBank,
   Plus,
+  RotateCcw,
   Target,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { SavingsGoal } from '../types/finance';
 import { formatCurrency } from '../utils/financeMetrics';
@@ -14,9 +19,17 @@ interface SavingsGoalsSectionProps {
   onContributeToGoal: (goalId: string, amount: number) => void;
   onUpdateGoal: (
     goalId: string,
-    updates: Partial<Pick<SavingsGoal, 'targetAmount' | 'monthlyContribution' | 'targetDate'>>
+    updates: Partial<
+      Pick<SavingsGoal, 'currentSaved' | 'targetAmount' | 'monthlyContribution' | 'targetDate'>
+    >
   ) => void;
+  onSetTotalSavedAcrossGoals?: (nextTotalSaved: number) => void;
   onCreateGoal: (newGoal: Omit<SavingsGoal, 'id'>) => void;
+  onDeleteGoal?: (goalId: string) => void;
+  lastDeletedGoal?: SavingsGoal | null;
+  onUndoDeleteGoal?: () => void;
+  onDismissUndoGoal?: () => void;
+  onLoadStarterDemo?: () => void;
   compact?: boolean;
 }
 
@@ -25,13 +38,24 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
   netCashFlowThisMonth,
   onContributeToGoal,
   onUpdateGoal,
+  onSetTotalSavedAcrossGoals,
   onCreateGoal,
+  onDeleteGoal,
+  lastDeletedGoal = null,
+  onUndoDeleteGoal,
+  onDismissUndoGoal,
+  onLoadStarterDemo,
   compact = false,
 }) => {
   const [isAddingGoal, setIsAddingGoal] = useState(false);
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
+  const [editSavedStr, setEditSavedStr] = useState('');
   const [editTargetStr, setEditTargetStr] = useState('');
   const [editMonthlyStr, setEditMonthlyStr] = useState('');
+
+  // Editable Total Saved KPI State
+  const [isEditingTotalSaved, setIsEditingTotalSaved] = useState(false);
+  const [totalSavedInputStr, setTotalSavedInputStr] = useState('');
 
   // New Goal Form State
   const [newName, setNewName] = useState('');
@@ -62,8 +86,8 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
   const handleCreateGoalSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const targetAmount = parseFloat(newTarget);
-    const currentSaved = parseFloat(newCurrent) || 0;
-    const monthlyContribution = parseFloat(newMonthly) || 100;
+    const currentSaved = Math.max(0, parseFloat(newCurrent) || 0);
+    const monthlyContribution = Math.max(0, parseFloat(newMonthly) || 100);
     if (!newName.trim() || isNaN(targetAmount) || targetAmount <= 0) return;
 
     onCreateGoal({
@@ -81,14 +105,44 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
     setIsAddingGoal(false);
   };
 
+  const openGoalInlineEditor = (goal: SavingsGoal) => {
+    setEditingGoalId(goal.id);
+    setEditSavedStr(String(goal.currentSaved));
+    setEditTargetStr(String(goal.targetAmount));
+    setEditMonthlyStr(String(goal.monthlyContribution));
+  };
+
   const handleSaveInlineEdit = (goalId: string) => {
+    const sVal = parseFloat(editSavedStr);
     const tVal = parseFloat(editTargetStr);
     const mVal = parseFloat(editMonthlyStr);
     onUpdateGoal(goalId, {
-      ...(isNaN(tVal) || tVal <= 0 ? {} : { targetAmount: tVal }),
-      ...(isNaN(mVal) || mVal < 0 ? {} : { monthlyContribution: mVal }),
+      ...(isNaN(sVal) || sVal < 0 ? {} : { currentSaved: Math.min(100000000, sVal) }),
+      ...(isNaN(tVal) || tVal <= 0 ? {} : { targetAmount: Math.min(100000000, tVal) }),
+      ...(isNaN(mVal) || mVal < 0 ? {} : { monthlyContribution: Math.min(10000000, mVal) }),
     });
     setEditingGoalId(null);
+  };
+
+  const handleOpenTotalSavedEditor = () => {
+    if (savingsGoals.length === 0) {
+      setIsAddingGoal(true);
+      return;
+    }
+    setTotalSavedInputStr(String(Math.round(summary.totalSaved * 100) / 100));
+    setIsEditingTotalSaved(true);
+  };
+
+  const handleSaveTotalSavedSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = parseFloat(totalSavedInputStr);
+    if (isNaN(parsed) || parsed < 0) return;
+    if (onSetTotalSavedAcrossGoals) {
+      onSetTotalSavedAcrossGoals(Math.min(100000000, parsed));
+    } else if (savingsGoals[0]) {
+      onUpdateGoal(savingsGoals[0].id, { currentSaved: Math.min(100000000, parsed) });
+    }
+    setIsEditingTotalSaved(false);
   };
 
   return (
@@ -102,10 +156,10 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
           <PiggyBank className="w-4 h-4 text-slate-900 dark:text-slate-100 shrink-0" />
           <div>
             <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              Personal Savings Goals & Automated Monthly Allocations
+              Personal Savings Goals &amp; Automated Monthly Allocations
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Track target milestones, log contributions, and route monthly cash flow surplus directly into high-yield vaults
+              Track target milestones, edit saved balances anytime, and route monthly cash flow surplus into high-yield vaults
             </p>
           </div>
         </div>
@@ -120,16 +174,120 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
         </button>
       </div>
 
+      {/* Undo Deleted Savings Goal Banner */}
+      {lastDeletedGoal && onUndoDeleteGoal && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="px-6 py-3 bg-amber-50/90 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800/70 flex flex-wrap items-center justify-between gap-3 text-xs"
+        >
+          <div className="text-slate-800 dark:text-slate-200">
+            <span>Deleted savings goal </span>
+            <strong className="font-semibold text-slate-900 dark:text-white">
+              &ldquo;{lastDeletedGoal.name}&rdquo;
+            </strong>
+            <span className="font-mono tabular-nums text-slate-600 dark:text-slate-300">
+              {' '}
+              ({formatCurrency(lastDeletedGoal.currentSaved)} saved of{' '}
+              {formatCurrency(lastDeletedGoal.targetAmount)} target)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onUndoDeleteGoal}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md transition-colors whitespace-nowrap"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Undo Delete</span>
+            </button>
+            {onDismissUndoGoal && (
+              <button
+                type="button"
+                onClick={onDismissUndoGoal}
+                aria-label="Dismiss undo notice"
+                className="p-1 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 rounded transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Summary KPI Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200 dark:divide-slate-800 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
         <div className="p-4 sm:px-6">
-          <div className="text-xs text-slate-500 dark:text-slate-400">Total Saved Across Goals</div>
-          <div className="mt-1 text-xl font-semibold font-mono tabular-nums text-slate-900 dark:text-slate-100">
-            {formatCurrency(summary.totalSaved)}
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              Total Saved Across Goals
+            </span>
+            {savingsGoals.length > 0 && !isEditingTotalSaved && (
+              <button
+                type="button"
+                onClick={handleOpenTotalSavedEditor}
+                title="Edit total saved balance"
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white underline underline-offset-4 whitespace-nowrap shrink-0"
+              >
+                <Pencil className="w-3 h-3" />
+                <span>Edit</span>
+              </button>
+            )}
           </div>
-          <div className="mt-0.5 text-[11px] font-mono text-emerald-700 dark:text-emerald-400">
-            {summary.overallProgress.toFixed(1)}% of {formatCurrency(summary.totalTarget)} combined target
-          </div>
+
+          {isEditingTotalSaved ? (
+            <form onSubmit={handleSaveTotalSavedSubmit} className="mt-1.5 space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-mono text-slate-500 dark:text-slate-400">$</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="100000000"
+                  step="0.01"
+                  required
+                  aria-label="Total Saved Across Goals ($)"
+                  value={totalSavedInputStr}
+                  onChange={(e) => setTotalSavedInputStr(e.target.value)}
+                  className="w-full px-2.5 py-1 text-sm font-semibold font-mono tabular-nums bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-md text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-300"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px]">
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 font-semibold bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded hover:opacity-90 transition-opacity whitespace-nowrap"
+                >
+                  <Check className="w-3 h-3" />
+                  <span>Save Total</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingTotalSaved(false)}
+                  className="px-2 py-1 text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 whitespace-nowrap"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleOpenTotalSavedEditor}
+                title={
+                  savingsGoals.length > 0
+                    ? 'Click to edit total saved balance'
+                    : 'Create a savings goal first'
+                }
+                className="mt-1 text-left text-xl font-semibold font-mono tabular-nums text-slate-900 dark:text-slate-100 hover:text-emerald-700 dark:hover:text-emerald-400 transition-colors"
+              >
+                {formatCurrency(summary.totalSaved)}
+              </button>
+              <div className="mt-0.5 text-[11px] font-mono text-emerald-700 dark:text-emerald-400">
+                {summary.overallProgress.toFixed(1)}% of {formatCurrency(summary.totalTarget)} combined target
+              </div>
+            </>
+          )}
         </div>
 
         <div className="p-4 sm:px-6">
@@ -204,27 +362,27 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               </label>
               <input
                 type="number"
-                min="100"
-                step="50"
+                min="1"
+                step="0.01"
                 required
                 value={newTarget}
                 onChange={(e) => setNewTarget(e.target.value)}
-                className="w-full px-3 py-2 font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
+                className="w-full px-3 py-2 font-mono tabular-nums bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
               />
             </div>
 
             <div>
               <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Current Saved ($)
+                Total Saved ($)
               </label>
               <input
                 type="number"
                 min="0"
-                step="50"
+                step="0.01"
                 required
                 value={newCurrent}
                 onChange={(e) => setNewCurrent(e.target.value)}
-                className="w-full px-3 py-2 font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
+                className="w-full px-3 py-2 font-mono tabular-nums bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
               />
             </div>
 
@@ -234,12 +392,12 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
               </label>
               <input
                 type="number"
-                min="10"
+                min="0"
                 step="10"
                 required
                 value={newMonthly}
                 onChange={(e) => setNewMonthly(e.target.value)}
-                className="w-full px-3 py-2 font-mono bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
+                className="w-full px-3 py-2 font-mono tabular-nums bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-slate-100 focus:outline-none focus:border-slate-900 dark:focus:border-slate-400"
               />
             </div>
           </div>
@@ -287,172 +445,272 @@ export const SavingsGoalsSection: React.FC<SavingsGoalsSectionProps> = ({
             </div>
           </div>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setIsAddingGoal(false)}
-              className="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 transition-colors"
-            >
-              <Check className="w-3.5 h-3.5" />
-              <span>Save Goal</span>
-            </button>
+          <div className="flex items-center justify-between gap-3 pt-2">
+            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+              Label: {newCategoryLabel}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsAddingGoal(false)}
+                className="px-3 py-1.5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-800 transition-colors"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Save Goal</span>
+              </button>
+            </div>
           </div>
         </form>
       )}
 
-      {/* Goals Grid */}
-      <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-        {(compact ? savingsGoals.slice(0, 4) : savingsGoals).map((goal) => {
-          const pct =
-            goal.targetAmount > 0
-              ? Math.min(100, (goal.currentSaved / goal.targetAmount) * 100)
-              : 0;
-          const remaining = Math.max(0, goal.targetAmount - goal.currentSaved);
-          const monthsLeft =
-            goal.monthlyContribution > 0
-              ? Math.ceil(remaining / goal.monthlyContribution)
-              : null;
-          const isEditing = editingGoalId === goal.id;
-
-          return (
-            <div
-              key={goal.id}
-              className="p-4 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col justify-between gap-3 hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
+      {/* Goals Grid or Empty State */}
+      {savingsGoals.length === 0 ? (
+        <div className="p-10 text-center space-y-3 text-xs text-slate-500 dark:text-slate-400">
+          <div className="max-w-md mx-auto space-y-1.5">
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+              No savings goals configured yet
+            </div>
+            <p>
+              Create target milestones for emergency reserves, travel, or major purchases and automate monthly surplus allocations.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsAddingGoal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 font-semibold text-white dark:text-slate-900 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white rounded-lg transition-colors"
             >
-              <div className="space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      <Target className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
-                      <span>{goal.name}</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Create First Savings Goal</span>
+            </button>
+            {lastDeletedGoal && onUndoDeleteGoal && (
+              <button
+                type="button"
+                onClick={onUndoDeleteGoal}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-lg transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Restore &ldquo;{lastDeletedGoal.name}&rdquo;</span>
+              </button>
+            )}
+            {onLoadStarterDemo && (
+              <button
+                type="button"
+                onClick={onLoadStarterDemo}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Load Starter Demo Goals</span>
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          {(compact ? savingsGoals.slice(0, 4) : savingsGoals).map((goal) => {
+            const pct =
+              goal.targetAmount > 0
+                ? Math.min(100, (goal.currentSaved / goal.targetAmount) * 100)
+                : 0;
+            const remaining = Math.max(0, goal.targetAmount - goal.currentSaved);
+            const monthsLeft =
+              goal.monthlyContribution > 0
+                ? Math.ceil(remaining / goal.monthlyContribution)
+                : null;
+            const isEditing = editingGoalId === goal.id;
+
+            return (
+              <div
+                key={goal.id}
+                className="p-4 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col justify-between gap-3 hover:border-slate-300 dark:hover:border-slate-700 transition-colors"
+              >
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        <Target className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                        <span>{goal.name}</span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        {goal.linkedAccount} · Priority: {goal.priority} · Target: {goal.targetDate}
+                      </div>
                     </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      {goal.linkedAccount} · Priority: {goal.priority} · Target: {goal.targetDate}
-                    </div>
-                  </div>
 
-                  <span className="font-mono text-xs font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
-                    {pct.toFixed(1)}%
-                  </span>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-emerald-600 dark:bg-emerald-500 rounded-full transition-all duration-200"
-                    style={{ width: `${Math.max(2, pct)}%` }}
-                  />
-                </div>
-
-                {/* Amounts & Pace */}
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-0.5">
-                  <div className="font-mono tabular-nums">
-                    <strong className="text-slate-900 dark:text-slate-100">
-                      {formatCurrency(goal.currentSaved)}
-                    </strong>
-                    <span className="text-slate-400 dark:text-slate-500"> / </span>
-                    <span className="text-slate-600 dark:text-slate-300">
-                      {formatCurrency(goal.targetAmount)}
+                    <span className="font-mono tabular-nums text-xs font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
+                      {pct.toFixed(1)}%
                     </span>
                   </div>
 
-                  <div className="text-slate-500 dark:text-slate-400 font-mono text-[11px]">
-                    {remaining === 0 ? (
-                      <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
-                        Goal Reached!
-                      </span>
-                    ) : (
-                      <>
-                        {formatCurrency(remaining)} to go
-                        {monthsLeft !== null && ` (~${monthsLeft} mo at ${formatCurrency(goal.monthlyContribution)}/mo)`}
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Interactive Contribution & Edit Footer */}
-              {isEditing ? (
-                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center gap-2">
-                    <label className="text-slate-500 dark:text-slate-400">Target ($):</label>
-                    <input
-                      type="number"
-                      min="100"
-                      step="100"
-                      value={editTargetStr}
-                      onChange={(e) => setEditTargetStr(e.target.value)}
-                      className="w-24 px-2 py-1 font-mono bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-slate-900 dark:text-slate-100"
-                    />
-                    <label className="text-slate-500 dark:text-slate-400">Monthly ($):</label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="25"
-                      value={editMonthlyStr}
-                      onChange={(e) => setEditMonthlyStr(e.target.value)}
-                      className="w-20 px-2 py-1 font-mono bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-slate-900 dark:text-slate-100"
-                    />
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setEditingGoalId(null)}
-                      className="px-2 py-1 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleSaveInlineEdit(goal.id)}
-                      className="px-2.5 py-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded font-medium"
-                    >
-                      Save
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => onContributeToGoal(goal.id, 100)}
-                      className="px-2.5 py-1 font-mono text-[11px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-md transition-colors"
-                    >
-                      +$100 Deposit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onContributeToGoal(goal.id, 250)}
-                      className="px-2.5 py-1 font-mono text-[11px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-md transition-colors"
-                    >
-                      +$250 Deposit
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingGoalId(goal.id);
-                      setEditTargetStr(String(goal.targetAmount));
-                      setEditMonthlyStr(String(goal.monthlyContribution));
-                    }}
-                    className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 underline underline-offset-4 text-[11px]"
+                  {/* Progress Bar (Zero inline styles) */}
+                  <svg
+                    viewBox="0 0 100 4"
+                    preserveAspectRatio="none"
+                    aria-hidden="true"
+                    className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden"
                   >
-                    Edit Target / Monthly ({formatCurrency(goal.monthlyContribution)}/mo)
-                  </button>
+                    <rect
+                      x={0}
+                      y={0}
+                      width={Math.max(2, pct)}
+                      height={4}
+                      className="fill-emerald-600 dark:fill-emerald-500"
+                    />
+                  </svg>
+
+                  {/* Amounts & Pace — Click saved amount directly to edit */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-0.5">
+                    <div className="font-mono tabular-nums flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openGoalInlineEditor(goal)}
+                        title={`Click to edit saved balance for ${goal.name}`}
+                        className="inline-flex items-center gap-1 font-semibold text-slate-900 dark:text-slate-100 hover:text-emerald-700 dark:hover:text-emerald-400 underline decoration-dotted underline-offset-4 transition-colors"
+                      >
+                        <span>{formatCurrency(goal.currentSaved)}</span>
+                        <Pencil className="w-3 h-3 text-slate-400" />
+                      </button>
+                      <span className="text-slate-400 dark:text-slate-500"> / </span>
+                      <span className="text-slate-600 dark:text-slate-300">
+                        {formatCurrency(goal.targetAmount)}
+                      </span>
+                    </div>
+
+                    <div className="text-slate-500 dark:text-slate-400 font-mono tabular-nums text-[11px]">
+                      {remaining === 0 ? (
+                        <span className="text-emerald-700 dark:text-emerald-400 font-semibold">
+                          Goal Reached!
+                        </span>
+                      ) : (
+                        <>
+                          {formatCurrency(remaining)} to go
+                          {monthsLeft !== null &&
+                            ` (~${monthsLeft} mo at ${formatCurrency(goal.monthlyContribution)}/mo)`}
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+
+                {/* Interactive Contribution & Edit Footer */}
+                {isEditing ? (
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">
+                          Total Saved ($)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100000000"
+                          step="0.01"
+                          value={editSavedStr}
+                          onChange={(e) => setEditSavedStr(e.target.value)}
+                          className="w-full px-2.5 py-1 font-mono tabular-nums bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-slate-900 dark:text-slate-100"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">
+                          Target ($)
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="100000000"
+                          step="0.01"
+                          value={editTargetStr}
+                          onChange={(e) => setEditTargetStr(e.target.value)}
+                          className="w-full px-2.5 py-1 font-mono tabular-nums bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-slate-900 dark:text-slate-100"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] text-slate-500 dark:text-slate-400 mb-0.5">
+                          Monthly ($/mo)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="10000000"
+                          step="10"
+                          value={editMonthlyStr}
+                          onChange={(e) => setEditMonthlyStr(e.target.value)}
+                          className="w-full px-2.5 py-1 font-mono tabular-nums bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded text-slate-900 dark:text-slate-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setEditingGoalId(null)}
+                        className="px-2.5 py-1 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveInlineEdit(goal.id)}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 rounded font-medium"
+                      >
+                        <Check className="w-3 h-3" />
+                        <span>Save Changes</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => onContributeToGoal(goal.id, 100)}
+                        className="px-2.5 py-1 font-mono tabular-nums text-[11px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-md transition-colors whitespace-nowrap"
+                      >
+                        +$100 Deposit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onContributeToGoal(goal.id, 250)}
+                        className="px-2.5 py-1 font-mono tabular-nums text-[11px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-md transition-colors whitespace-nowrap"
+                      >
+                        +$250 Deposit
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => openGoalInlineEditor(goal)}
+                        className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 underline underline-offset-4 text-[11px] whitespace-nowrap"
+                      >
+                        Edit Saved / Target / Monthly
+                      </button>
+                      {onDeleteGoal && (
+                        <button
+                          type="button"
+                          onClick={() => onDeleteGoal(goal.id)}
+                          aria-label={`Delete savings goal ${goal.name}`}
+                          title={`Delete "${goal.name}"`}
+                          className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 };

@@ -1,9 +1,10 @@
 import React from 'react';
 import { DashboardSummaryMetrics, formatCurrency } from '../utils/financeMetrics';
+import { NavTabId } from './MobileBottomNav';
 
 interface RunningSummaryGridProps {
   metrics: DashboardSummaryMetrics;
-  onNavigateTab: (tab: 'overview' | 'transactions' | 'reports' | 'subscriptions' | 'insights') => void;
+  onNavigateTab: (tab: NavTabId, subView?: 'ledger' | 'subscriptions') => void;
 }
 
 export const RunningSummaryGrid: React.FC<RunningSummaryGridProps> = ({
@@ -30,7 +31,24 @@ export const RunningSummaryGrid: React.FC<RunningSummaryGridProps> = ({
             </span>
           </p>
         </div>
-        <div className="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
+        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
+          <button
+            type="button"
+            onClick={() => onNavigateTab('splits')}
+            className="hover:text-slate-900 dark:hover:text-slate-100 underline decoration-slate-300 dark:decoration-slate-700 underline-offset-4 transition-colors"
+          >
+            Owed to you (splits):{' '}
+            <strong
+              className={`font-mono tabular-nums ${
+                metrics.totalSplitOwedToYou > 0
+                  ? 'text-amber-700 dark:text-amber-400'
+                  : 'text-slate-900 dark:text-slate-100'
+              }`}
+            >
+              {formatCurrency(metrics.totalSplitOwedToYou)}
+            </strong>
+          </button>
+          <span aria-hidden="true">·</span>
           <span>
             Excluded internal transfers:{' '}
             <strong className="font-mono text-slate-900 dark:text-slate-100">
@@ -67,6 +85,14 @@ export const RunningSummaryGrid: React.FC<RunningSummaryGridProps> = ({
             <span className="font-mono text-amber-700 dark:text-amber-400">
               {formatCurrency(metrics.pendingSpendingThisMonth)} pending
             </span>
+            {metrics.totalSplitCoveredThisMonth > 0 && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="font-mono text-slate-600 dark:text-slate-400">
+                  Excl. {formatCurrency(metrics.totalSplitCoveredThisMonth)} covered for friends
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -126,7 +152,7 @@ export const RunningSummaryGrid: React.FC<RunningSummaryGridProps> = ({
             </div>
             <button
               type="button"
-              onClick={() => onNavigateTab('subscriptions')}
+              onClick={() => onNavigateTab('transactions', 'subscriptions')}
               className="text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 underline underline-offset-4 whitespace-nowrap shrink-0"
             >
               Audit

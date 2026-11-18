@@ -1,0 +1,712 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Global Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwnerUid(userId) {
+      return isVerifiedUser() && isValidId(userId) && userId == request.auth.uid;
+    }
+
+    // Master Gate: Verifies parent workspace exists and belongs to the authenticated owner
+    function hasActiveParentLedger(userId) {
+      return exists(/databases/$(database)/documents/ledgers/$(userId)) &&
+        get(/databases/$(database)/documents/ledgers/$(userId)).data.ownerId == request.auth.uid &&
+        get(/databases/$(database)/documents/ledgers/$(userId)).data.archived == false;
+    }
+
+    function isAllowedCategory(cat) {
+      return cat is string && cat.size() <= 60 && cat in [
+        'Food & Restaurants',
+        'Coffee & Drinks',
+        'Groceries',
+        'Shopping & Retail',
+        'Transportation / Uber / Taxi',
+        'Gas & Parking',
+        'Bills & Utilities',
+        'Rent & Housing',
+        'Travel & Hotels',
+        'Entertainment',
+        'Health & Fitness',
+        'Subscriptions',
+        'Personal Care',
+        'Shopping Online',
+        'Education',
+        'Other / Uncategorized'
+      ];
+    }
+
+    function isAllowedSource(src) {
+      return src is string && src.size() <= 40 && src in [
+        'Gmail',
+        'Bank Statement',
+        'Apple Pay',
+        'Uploaded Statement',
+        'Cash / Manual'
+      ];
+    }
+
+    function isValidBudgetValue(val) {
+      return (val is int || val is float) && val >= 0 && val <= 1000000;
+    }
+
+    function isValidCategoryBudgetsMap(budgets) {
+      return budgets is map &&
+        budgets.keys().hasAll([
+          'Food & Restaurants',
+          'Coffee & Drinks',
+          'Groceries',
+          'Shopping & Retail',
+          'Transportation / Uber / Taxi',
+          'Gas & Parking',
+          'Bills & Utilities',
+          'Rent & Housing',
+          'Travel & Hotels',
+          'Entertainment',
+          'Health & Fitness',
+          'Subscriptions',
+          'Personal Care',
+          'Shopping Online',
+          'Education',
+          'Other / Uncategorized'
+        ]) &&
+        budgets.keys().hasOnly([
+          'Food & Restaurants',
+          'Coffee & Drinks',
+          'Groceries',
+          'Shopping & Retail',
+          'Transportation / Uber / Taxi',
+          'Gas & Parking',
+          'Bills & Utilities',
+          'Rent & Housing',
+          'Travel & Hotels',
+          'Entertainment',
+          'Health & Fitness',
+          'Subscriptions',
+          'Personal Care',
+          'Shopping Online',
+          'Education',
+          'Other / Uncategorized'
+        ]) &&
+        isValidBudgetValue(budgets['Food & Restaurants']) &&
+        isValidBudgetValue(budgets['Coffee & Drinks']) &&
+        isValidBudgetValue(budgets['Groceries']) &&
+        isValidBudgetValue(budgets['Shopping & Retail']) &&
+        isValidBudgetValue(budgets['Transportation / Uber / Taxi']) &&
+        isValidBudgetValue(budgets['Gas & Parking']) &&
+        isValidBudgetValue(budgets['Bills & Utilities']) &&
+        isValidBudgetValue(budgets['Rent & Housing']) &&
+        isValidBudgetValue(budgets['Travel & Hotels']) &&
+        isValidBudgetValue(budgets['Entertainment']) &&
+        isValidBudgetValue(budgets['Health & Fitness']) &&
+        isValidBudgetValue(budgets['Subscriptions']) &&
+        isValidBudgetValue(budgets['Personal Care']) &&
+        isValidBudgetValue(budgets['Shopping Online']) &&
+        isValidBudgetValue(budgets['Education']) &&
+        isValidBudgetValue(budgets['Other / Uncategorized']);
+    }
+
+    // Validation Blueprint 1: LedgerWorkspace (/ledgers/{userId})
+    function isValidLedgerWorkspace(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'categoryBudgets',
+          'lastSyncedDevice',
+          'archived',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'categoryBudgets',
+          'lastSyncedDevice',
+          'archived',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerId is string &&
+        data.ownerId.size() >= 1 &&
+        data.ownerId.size() <= 128 &&
+        data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId == request.auth.uid &&
+        isValidCategoryBudgetsMap(data.categoryBudgets) &&
+        data.lastSyncedDevice is string &&
+        data.lastSyncedDevice.size() >= 1 &&
+        data.lastSyncedDevice.size() <= 80 &&
+        data.archived is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidSplitParticipantMap(item, txAmount) {
+      return item is map &&
+        item.keys().hasAll([
+          'id',
+          'friendName',
+          'itemNote',
+          'amountOwed',
+          'status',
+          'settledDate'
+        ]) &&
+        item.keys().hasOnly([
+          'id',
+          'friendName',
+          'itemNote',
+          'amountOwed',
+          'status',
+          'settledDate'
+        ]) &&
+        isValidId(item.id) &&
+        item.friendName is string &&
+        item.friendName.size() >= 1 &&
+        item.friendName.size() <= 80 &&
+        item.itemNote is string &&
+        item.itemNote.size() <= 120 &&
+        (item.amountOwed is int || item.amountOwed is float) &&
+        item.amountOwed > 0 &&
+        item.amountOwed <= txAmount &&
+        item.status is string &&
+        item.status.size() <= 16 &&
+        item.status in ['owed', 'settled'] &&
+        item.settledDate is string &&
+        item.settledDate.size() <= 10;
+    }
+
+    // Validation Blueprint 2: LedgerTransaction (/ledgers/{userId}/transactions/{txId})
+    function isValidLedgerTransaction(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'date',
+          'time',
+          'merchant',
+          'rawDescription',
+          'amount',
+          'paymentMethod',
+          'category',
+          'clearingState',
+          'transactionType',
+          'source',
+          'mergedSourceNames',
+          'primaryReferenceId',
+          'isDeduplicated',
+          'uncertainCategory',
+          'uncertaintyReason',
+          'suggestedCategories',
+          'anomalyNote',
+          'isRecurring',
+          'isSplitBill',
+          'splitNote',
+          'splitOwedTotal',
+          'splitSettledTotal',
+          'splitParticipants',
+          'monthKey',
+          'archived',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'date',
+          'time',
+          'merchant',
+          'rawDescription',
+          'amount',
+          'paymentMethod',
+          'category',
+          'clearingState',
+          'transactionType',
+          'source',
+          'mergedSourceNames',
+          'primaryReferenceId',
+          'isDeduplicated',
+          'uncertainCategory',
+          'uncertaintyReason',
+          'suggestedCategories',
+          'anomalyNote',
+          'isRecurring',
+          'isSplitBill',
+          'splitNote',
+          'splitOwedTotal',
+          'splitSettledTotal',
+          'splitParticipants',
+          'monthKey',
+          'archived',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerId is string &&
+        data.ownerId.size() >= 1 &&
+        data.ownerId.size() <= 128 &&
+        data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.date is string &&
+        data.date.size() == 10 &&
+        data.date.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.time is string &&
+        data.time.size() <= 10 &&
+        data.merchant is string &&
+        data.merchant.size() >= 1 &&
+        data.merchant.size() <= 160 &&
+        data.rawDescription is string &&
+        data.rawDescription.size() >= 1 &&
+        data.rawDescription.size() <= 600 &&
+        (data.amount is int || data.amount is float) &&
+        data.amount >= 0 &&
+        data.amount <= 10000000 &&
+        data.paymentMethod is string &&
+        data.paymentMethod.size() >= 1 &&
+        data.paymentMethod.size() <= 120 &&
+        isAllowedCategory(data.category) &&
+        data.clearingState is string &&
+        data.clearingState.size() <= 20 &&
+        data.clearingState in ['posted', 'pending', 'refunded'] &&
+        data.transactionType is string &&
+        data.transactionType.size() <= 20 &&
+        data.transactionType in ['purchase', 'refund', 'income', 'transfer'] &&
+        isAllowedSource(data.source) &&
+        data.mergedSourceNames is list &&
+        data.mergedSourceNames.size() <= 10 &&
+        (data.mergedSourceNames.size() == 0 || (data.mergedSourceNames[0] is string && data.mergedSourceNames[0].size() <= 40)) &&
+        data.primaryReferenceId is string &&
+        data.primaryReferenceId.size() >= 1 &&
+        data.primaryReferenceId.size() <= 120 &&
+        data.isDeduplicated is bool &&
+        data.uncertainCategory is bool &&
+        data.uncertaintyReason is string &&
+        data.uncertaintyReason.size() <= 400 &&
+        data.suggestedCategories is list &&
+        data.suggestedCategories.size() <= 5 &&
+        (data.suggestedCategories.size() == 0 || (data.suggestedCategories[0] is string && data.suggestedCategories[0].size() <= 60)) &&
+        data.anomalyNote is string &&
+        data.anomalyNote.size() <= 400 &&
+        data.isRecurring is bool &&
+        data.isSplitBill is bool &&
+        data.splitNote is string &&
+        data.splitNote.size() <= 200 &&
+        (data.splitOwedTotal is int || data.splitOwedTotal is float) &&
+        data.splitOwedTotal >= 0 &&
+        data.splitOwedTotal <= data.amount &&
+        (data.splitSettledTotal is int || data.splitSettledTotal is float) &&
+        data.splitSettledTotal >= 0 &&
+        data.splitSettledTotal <= data.splitOwedTotal &&
+        data.splitParticipants is list &&
+        data.splitParticipants.size() <= 8 &&
+        (data.splitParticipants.size() == 0 || isValidSplitParticipantMap(data.splitParticipants[0], data.amount)) &&
+        data.monthKey is string &&
+        data.monthKey.size() <= 10 &&
+        data.monthKey in ['2026-11', '2026-10'] &&
+        data.archived is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint 3: LedgerSubscription (/ledgers/{userId}/subscriptions/{subId})
+    function isValidLedgerSubscription(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'merchant',
+          'category',
+          'amount',
+          'previousAmount',
+          'inactiveMonths',
+          'alertDismissed',
+          'frequency',
+          'billingDayOrDate',
+          'paymentMethod',
+          'source',
+          'estimatedAnnualCost',
+          'planState',
+          'usageNote',
+          'lastChargedDate',
+          'archived',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'merchant',
+          'category',
+          'amount',
+          'previousAmount',
+          'inactiveMonths',
+          'alertDismissed',
+          'frequency',
+          'billingDayOrDate',
+          'paymentMethod',
+          'source',
+          'estimatedAnnualCost',
+          'planState',
+          'usageNote',
+          'lastChargedDate',
+          'archived',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerId is string &&
+        data.ownerId.size() >= 1 &&
+        data.ownerId.size() <= 128 &&
+        data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.merchant is string &&
+        data.merchant.size() >= 1 &&
+        data.merchant.size() <= 160 &&
+        isAllowedCategory(data.category) &&
+        (data.amount is int || data.amount is float) &&
+        data.amount >= 0 &&
+        data.amount <= 1000000 &&
+        (data.previousAmount is int || data.previousAmount is float) &&
+        data.previousAmount >= 0 &&
+        data.previousAmount <= 1000000 &&
+        (data.inactiveMonths is int || data.inactiveMonths is float) &&
+        data.inactiveMonths >= 0 &&
+        data.inactiveMonths <= 120 &&
+        data.alertDismissed is bool &&
+        data.frequency is string &&
+        data.frequency.size() <= 40 &&
+        data.frequency in ['Monthly subscription', 'Annual subscription', 'Membership', 'Recurring bill'] &&
+        data.billingDayOrDate is string &&
+        data.billingDayOrDate.size() >= 1 &&
+        data.billingDayOrDate.size() <= 60 &&
+        data.paymentMethod is string &&
+        data.paymentMethod.size() >= 1 &&
+        data.paymentMethod.size() <= 120 &&
+        isAllowedSource(data.source) &&
+        (data.estimatedAnnualCost is int || data.estimatedAnnualCost is float) &&
+        data.estimatedAnnualCost >= 0 &&
+        data.estimatedAnnualCost <= 12000000 &&
+        data.planState is string &&
+        data.planState.size() <= 30 &&
+        data.planState in ['Active', 'Unused / Review', 'Price Increased', 'Canceled'] &&
+        data.usageNote is string &&
+        data.usageNote.size() <= 400 &&
+        data.lastChargedDate is string &&
+        data.lastChargedDate.size() == 10 &&
+        data.lastChargedDate.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.archived is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint 4: LedgerSavingsGoal (/ledgers/{userId}/savingsGoals/{goalId})
+    function isValidLedgerSavingsGoal(data) {
+      return data.keys().hasAll([
+          'ownerId',
+          'name',
+          'categoryLabel',
+          'targetAmount',
+          'currentSaved',
+          'monthlyContribution',
+          'targetDate',
+          'linkedAccount',
+          'priority',
+          'archived',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'ownerId',
+          'name',
+          'categoryLabel',
+          'targetAmount',
+          'currentSaved',
+          'monthlyContribution',
+          'targetDate',
+          'linkedAccount',
+          'priority',
+          'archived',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.ownerId is string &&
+        data.ownerId.size() >= 1 &&
+        data.ownerId.size() <= 128 &&
+        data.ownerId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerId == request.auth.uid &&
+        data.name is string &&
+        data.name.size() >= 1 &&
+        data.name.size() <= 120 &&
+        data.categoryLabel is string &&
+        data.categoryLabel.size() >= 1 &&
+        data.categoryLabel.size() <= 60 &&
+        (data.targetAmount is int || data.targetAmount is float) &&
+        data.targetAmount >= 0 &&
+        data.targetAmount <= 100000000 &&
+        (data.currentSaved is int || data.currentSaved is float) &&
+        data.currentSaved >= 0 &&
+        data.currentSaved <= 100000000 &&
+        (data.monthlyContribution is int || data.monthlyContribution is float) &&
+        data.monthlyContribution >= 0 &&
+        data.monthlyContribution <= 10000000 &&
+        data.targetDate is string &&
+        data.targetDate.size() == 10 &&
+        data.targetDate.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+        data.linkedAccount is string &&
+        data.linkedAccount.size() >= 1 &&
+        data.linkedAccount.size() <= 120 &&
+        data.priority is string &&
+        data.priority.size() <= 20 &&
+        data.priority in ['High', 'Medium', 'Flexible'] &&
+        data.archived is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Collection 1: Root Ledger Workspace (/ledgers/{userId})
+    match /ledgers/{userId} {
+      allow get: if isOwnerUid(userId);
+      allow list: if false;
+
+      allow create: if isOwnerUid(userId) &&
+        isValidLedgerWorkspace(incoming()) &&
+        incoming().archived == false &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isOwnerUid(userId) &&
+        isValidLedgerWorkspace(incoming()) &&
+        existing().archived == false &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          // Action 1: Update Category Budgets or Device Sync Metadata
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'categoryBudgets',
+            'lastSyncedDevice',
+            'updatedAt'
+          ]) ||
+          // Action 2: Archive Workspace (Terminal Transition)
+          (incoming().archived == true &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['archived', 'updatedAt']))
+        );
+
+      allow delete: if false;
+
+      // Subcollection 1A: Deduplicated Transactions (/ledgers/{userId}/transactions/{txId})
+      match /transactions/{txId} {
+        allow get: if isOwnerUid(userId) &&
+          isValidId(txId) &&
+          existing().ownerId == request.auth.uid &&
+          hasActiveParentLedger(userId);
+
+        allow list: if isOwnerUid(userId) &&
+          resource.data.ownerId == request.auth.uid;
+
+        allow create: if isOwnerUid(userId) &&
+          isValidId(txId) &&
+          isValidLedgerTransaction(incoming()) &&
+          incoming().archived == false &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentLedger(userId);
+
+        allow update: if isOwnerUid(userId) &&
+          isValidId(txId) &&
+          isValidLedgerTransaction(incoming()) &&
+          existing().archived == false &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            // Action 1: Reconcile Category, Clearing State, Bill Split, Source Merge, or Anomaly Flag
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'category',
+              'clearingState',
+              'transactionType',
+              'isDeduplicated',
+              'mergedSourceNames',
+              'uncertainCategory',
+              'uncertaintyReason',
+              'suggestedCategories',
+              'anomalyNote',
+              'isSplitBill',
+              'splitNote',
+              'splitOwedTotal',
+              'splitSettledTotal',
+              'splitParticipants',
+              'updatedAt'
+            ]) ||
+            // Action 2: Full Sync Update from Phone or Computer
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'date',
+              'time',
+              'merchant',
+              'rawDescription',
+              'amount',
+              'paymentMethod',
+              'category',
+              'clearingState',
+              'transactionType',
+              'source',
+              'mergedSourceNames',
+              'primaryReferenceId',
+              'isDeduplicated',
+              'uncertainCategory',
+              'uncertaintyReason',
+              'suggestedCategories',
+              'anomalyNote',
+              'isRecurring',
+              'isSplitBill',
+              'splitNote',
+              'splitOwedTotal',
+              'splitSettledTotal',
+              'splitParticipants',
+              'monthKey',
+              'updatedAt'
+            ]) ||
+            // Action 3: Terminal Archive Lock
+            (incoming().archived == true &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['archived', 'updatedAt']))
+          ) &&
+          hasActiveParentLedger(userId);
+
+        allow delete: if isOwnerUid(userId) &&
+          isValidId(txId) &&
+          existing().ownerId == request.auth.uid &&
+          hasActiveParentLedger(userId);
+      }
+
+      // Subcollection 1B: Recurring Subscriptions (/ledgers/{userId}/subscriptions/{subId})
+      match /subscriptions/{subId} {
+        allow get: if isOwnerUid(userId) &&
+          isValidId(subId) &&
+          existing().ownerId == request.auth.uid &&
+          hasActiveParentLedger(userId);
+
+        allow list: if isOwnerUid(userId) &&
+          resource.data.ownerId == request.auth.uid;
+
+        allow create: if isOwnerUid(userId) &&
+          isValidId(subId) &&
+          isValidLedgerSubscription(incoming()) &&
+          incoming().archived == false &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentLedger(userId);
+
+        allow update: if isOwnerUid(userId) &&
+          isValidId(subId) &&
+          isValidLedgerSubscription(incoming()) &&
+          existing().archived == false &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            // Action 1: Toggle Plan Review State, Alert Dismissal, or Price Hike Watchdog
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'amount',
+              'previousAmount',
+              'inactiveMonths',
+              'alertDismissed',
+              'estimatedAnnualCost',
+              'planState',
+              'usageNote',
+              'lastChargedDate',
+              'updatedAt'
+            ]) ||
+            // Action 2: Full Subscription Sync Update
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'merchant',
+              'category',
+              'amount',
+              'previousAmount',
+              'inactiveMonths',
+              'alertDismissed',
+              'frequency',
+              'billingDayOrDate',
+              'paymentMethod',
+              'source',
+              'estimatedAnnualCost',
+              'planState',
+              'usageNote',
+              'lastChargedDate',
+              'updatedAt'
+            ]) ||
+            // Action 3: Terminal Archive Lock
+            (incoming().archived == true &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['archived', 'updatedAt']))
+          ) &&
+          hasActiveParentLedger(userId);
+
+        allow delete: if isOwnerUid(userId) &&
+          isValidId(subId) &&
+          existing().ownerId == request.auth.uid &&
+          hasActiveParentLedger(userId);
+      }
+
+      // Subcollection 1C: Savings Goals (/ledgers/{userId}/savingsGoals/{goalId})
+      match /savingsGoals/{goalId} {
+        allow get: if isOwnerUid(userId) &&
+          isValidId(goalId) &&
+          existing().ownerId == request.auth.uid &&
+          hasActiveParentLedger(userId);
+
+        allow list: if isOwnerUid(userId) &&
+          resource.data.ownerId == request.auth.uid;
+
+        allow create: if isOwnerUid(userId) &&
+          isValidId(goalId) &&
+          isValidLedgerSavingsGoal(incoming()) &&
+          incoming().archived == false &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          hasActiveParentLedger(userId);
+
+        allow update: if isOwnerUid(userId) &&
+          isValidId(goalId) &&
+          isValidLedgerSavingsGoal(incoming()) &&
+          existing().archived == false &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            // Action 1: Contribute Deposit or Adjust Target Parameters
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name',
+              'categoryLabel',
+              'targetAmount',
+              'currentSaved',
+              'monthlyContribution',
+              'targetDate',
+              'linkedAccount',
+              'priority',
+              'updatedAt'
+            ]) ||
+            // Action 2: Terminal Archive Lock
+            (incoming().archived == true &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['archived', 'updatedAt']))
+          ) &&
+          hasActiveParentLedger(userId);
+
+        allow delete: if isOwnerUid(userId) &&
+          isValidId(goalId) &&
+          existing().ownerId == request.auth.uid &&
+          hasActiveParentLedger(userId);
+      }
+    }
+  }
+}

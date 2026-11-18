@@ -1,7 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { Calendar, TrendingDown, TrendingUp } from 'lucide-react';
 import { SubscriptionItem, Transaction } from '../types/finance';
-import { DashboardSummaryMetrics, formatCurrency } from '../utils/financeMetrics';
+import {
+  DashboardSummaryMetrics,
+  formatCurrency,
+  getEffectivePersonalSpend,
+} from '../utils/financeMetrics';
 
 interface ProjectedCashFlowChartProps {
   transactions: Transaction[];
@@ -45,7 +49,10 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
     const novDiscretionaryPurchases = novTxs.filter(
       (t) => t.transactionType === 'purchase' && !t.isRecurring && t.category !== 'Rent & Housing'
     );
-    const novDiscretionaryTotal = novDiscretionaryPurchases.reduce((s, t) => s + t.amount, 0);
+    const novDiscretionaryTotal = novDiscretionaryPurchases.reduce(
+      (s, t) => s + getEffectivePersonalSpend(t),
+      0
+    );
     const novDailyDiscretionaryAvg = novDiscretionaryTotal / currentDay;
 
     // Blend with October non-recurring daily average for historical stability
@@ -91,12 +98,13 @@ export const ProjectedCashFlowChart: React.FC<ProjectedCashFlowChartProps> = ({
             runningIncome += tx.amount;
             events.push(`+${formatCurrency(tx.amount)} ${tx.merchant}`);
           } else if (tx.transactionType === 'purchase') {
+            const personalAmt = getEffectivePersonalSpend(tx);
             if (tx.isRecurring || tx.category === 'Rent & Housing') {
-              runningFixedSpend += tx.amount;
-              events.push(`Fixed: ${tx.merchant} (${formatCurrency(tx.amount)})`);
+              runningFixedSpend += personalAmt;
+              events.push(`Fixed: ${tx.merchant} (${formatCurrency(personalAmt)})`);
             } else {
-              runningDiscretionarySpend += tx.amount;
-              events.push(`${tx.merchant} (${formatCurrency(tx.amount)})`);
+              runningDiscretionarySpend += personalAmt;
+              events.push(`${tx.merchant} (${formatCurrency(personalAmt)})`);
             }
           } else if (tx.transactionType === 'refund') {
             runningDiscretionarySpend = Math.max(0, runningDiscretionarySpend - tx.amount);

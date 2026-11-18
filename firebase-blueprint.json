@@ -1,0 +1,510 @@
+{
+  "entities": {
+    "LedgerWorkspace": {
+      "title": "LedgerWorkspace",
+      "description": "Root per-user cloud sync workspace storing category budget limits and sync metadata across phone and computer.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID of the sole ledger owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "categoryBudgets": {
+          "type": "object",
+          "description": "Map of the 16 spending category names to monthly numeric dollar limits."
+        },
+        "lastSyncedDevice": {
+          "type": "string",
+          "description": "Short label indicating whether the last mutation came from Phone or Computer.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "archived": {
+          "type": "boolean",
+          "description": "Terminal lock flag; once true, workspace writes are locked."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when workspace was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest workspace update."
+        }
+      },
+      "required": [
+        "ownerId",
+        "categoryBudgets",
+        "lastSyncedDevice",
+        "archived",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LedgerTransaction": {
+      "title": "LedgerTransaction",
+      "description": "Deduplicated financial transaction synced across phone and computer.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID of the transaction owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "date": {
+          "type": "string",
+          "description": "ISO calendar date YYYY-MM-DD.",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "time": {
+          "type": "string",
+          "description": "24-hour time string HH:mm.",
+          "minLength": 0,
+          "maxLength": 10
+        },
+        "merchant": {
+          "type": "string",
+          "description": "Clean merchant or counterparty name.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "rawDescription": {
+          "type": "string",
+          "description": "Raw bank, Gmail, or OCR receipt descriptor.",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "amount": {
+          "type": "number",
+          "description": "Exact non-negative numeric transaction amount."
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Card, wallet, or bank account descriptor.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "category": {
+          "type": "string",
+          "description": "One of the 16 allowed spending categories.",
+          "maxLength": 60,
+          "enum": [
+            "Food & Restaurants",
+            "Coffee & Drinks",
+            "Groceries",
+            "Shopping & Retail",
+            "Transportation / Uber / Taxi",
+            "Gas & Parking",
+            "Bills & Utilities",
+            "Rent & Housing",
+            "Travel & Hotels",
+            "Entertainment",
+            "Health & Fitness",
+            "Subscriptions",
+            "Personal Care",
+            "Shopping Online",
+            "Education",
+            "Other / Uncategorized"
+          ]
+        },
+        "clearingState": {
+          "type": "string",
+          "description": "Posting state of the transaction.",
+          "maxLength": 20,
+          "enum": ["posted", "pending", "refunded"]
+        },
+        "transactionType": {
+          "type": "string",
+          "description": "Classification of cashflow movement.",
+          "maxLength": 20,
+          "enum": ["purchase", "refund", "income", "transfer"]
+        },
+        "source": {
+          "type": "string",
+          "description": "Primary ingestion channel.",
+          "maxLength": 40,
+          "enum": [
+            "Gmail",
+            "Bank Statement",
+            "Apple Pay",
+            "Uploaded Statement",
+            "Cash / Manual"
+          ]
+        },
+        "mergedSourceNames": {
+          "type": "array",
+          "description": "Bounded list (max 10) of DataSource channel names merged into this record."
+        },
+        "primaryReferenceId": {
+          "type": "string",
+          "description": "Primary source reference identifier.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "isDeduplicated": {
+          "type": "boolean",
+          "description": "True when multiple channels matched this single transaction."
+        },
+        "uncertainCategory": {
+          "type": "boolean",
+          "description": "True when merchant descriptor needs user category confirmation."
+        },
+        "uncertaintyReason": {
+          "type": "string",
+          "description": "Explanation shown in clarification queue when uncertain.",
+          "minLength": 0,
+          "maxLength": 400
+        },
+        "suggestedCategories": {
+          "type": "array",
+          "description": "Bounded list (max 5) of candidate category names."
+        },
+        "anomalyNote": {
+          "type": "string",
+          "description": "Optional duplicate or unusual charge note.",
+          "minLength": 0,
+          "maxLength": 400
+        },
+        "isRecurring": {
+          "type": "boolean",
+          "description": "True if part of a recurring billing schedule."
+        },
+        "isSplitBill": {
+          "type": "boolean",
+          "description": "True when the bill is split with one or more friends who owe or reimbursed a share."
+        },
+        "splitNote": {
+          "type": "string",
+          "description": "Optional note describing the shared bill split.",
+          "minLength": 0,
+          "maxLength": 200
+        },
+        "splitOwedTotal": {
+          "type": "number",
+          "description": "Total dollar share covered for friends across all split participants (0 <= splitOwedTotal <= amount)."
+        },
+        "splitSettledTotal": {
+          "type": "number",
+          "description": "Portion of splitOwedTotal already paid back by friends (0 <= splitSettledTotal <= splitOwedTotal)."
+        },
+        "splitParticipants": {
+          "type": "array",
+          "description": "Bounded list (max 8) of friend split share maps (id, friendName, itemNote, amountOwed, status, settledDate)."
+        },
+        "monthKey": {
+          "type": "string",
+          "description": "Month partition key.",
+          "maxLength": 10,
+          "enum": ["2026-11", "2026-10"]
+        },
+        "archived": {
+          "type": "boolean",
+          "description": "Terminal lock flag; once true, record cannot be mutated."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when transaction record was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest transaction update."
+        }
+      },
+      "required": [
+        "ownerId",
+        "date",
+        "time",
+        "merchant",
+        "rawDescription",
+        "amount",
+        "paymentMethod",
+        "category",
+        "clearingState",
+        "transactionType",
+        "source",
+        "mergedSourceNames",
+        "primaryReferenceId",
+        "isDeduplicated",
+        "uncertainCategory",
+        "uncertaintyReason",
+        "suggestedCategories",
+        "anomalyNote",
+        "isRecurring",
+        "isSplitBill",
+        "splitNote",
+        "splitOwedTotal",
+        "splitSettledTotal",
+        "splitParticipants",
+        "monthKey",
+        "archived",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LedgerSubscription": {
+      "title": "LedgerSubscription",
+      "description": "Recurring subscription or bill tracked across phone and computer.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID of the subscription owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "merchant": {
+          "type": "string",
+          "description": "Subscription provider name.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "category": {
+          "type": "string",
+          "description": "Spending category.",
+          "maxLength": 60,
+          "enum": [
+            "Food & Restaurants",
+            "Coffee & Drinks",
+            "Groceries",
+            "Shopping & Retail",
+            "Transportation / Uber / Taxi",
+            "Gas & Parking",
+            "Bills & Utilities",
+            "Rent & Housing",
+            "Travel & Hotels",
+            "Entertainment",
+            "Health & Fitness",
+            "Subscriptions",
+            "Personal Care",
+            "Shopping Online",
+            "Education",
+            "Other / Uncategorized"
+          ]
+        },
+        "amount": {
+          "type": "number",
+          "description": "Current cycle charge amount."
+        },
+        "previousAmount": {
+          "type": "number",
+          "description": "Prior cycle charge amount (0 when unchanged)."
+        },
+        "inactiveMonths": {
+          "type": "number",
+          "description": "Number of months with zero detected usage."
+        },
+        "alertDismissed": {
+          "type": "boolean",
+          "description": "Whether price-hike or inactivity alert was acknowledged."
+        },
+        "frequency": {
+          "type": "string",
+          "description": "Billing cadence.",
+          "maxLength": 40,
+          "enum": [
+            "Monthly subscription",
+            "Annual subscription",
+            "Membership",
+            "Recurring bill"
+          ]
+        },
+        "billingDayOrDate": {
+          "type": "string",
+          "description": "Human-readable billing day label.",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Card or account billed.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "source": {
+          "type": "string",
+          "description": "Channel that detected the subscription.",
+          "maxLength": 40,
+          "enum": [
+            "Gmail",
+            "Bank Statement",
+            "Apple Pay",
+            "Uploaded Statement",
+            "Cash / Manual"
+          ]
+        },
+        "estimatedAnnualCost": {
+          "type": "number",
+          "description": "Annualized cost in dollars."
+        },
+        "planState": {
+          "type": "string",
+          "description": "Current review state of the subscription.",
+          "maxLength": 30,
+          "enum": ["Active", "Unused / Review", "Price Increased", "Canceled"]
+        },
+        "usageNote": {
+          "type": "string",
+          "description": "Optional note about recent usage or price changes.",
+          "minLength": 0,
+          "maxLength": 400
+        },
+        "lastChargedDate": {
+          "type": "string",
+          "description": "YYYY-MM-DD of most recent charge.",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "archived": {
+          "type": "boolean",
+          "description": "Terminal lock flag; once true, record cannot be mutated."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when subscription was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest subscription update."
+        }
+      },
+      "required": [
+        "ownerId",
+        "merchant",
+        "category",
+        "amount",
+        "previousAmount",
+        "inactiveMonths",
+        "alertDismissed",
+        "frequency",
+        "billingDayOrDate",
+        "paymentMethod",
+        "source",
+        "estimatedAnnualCost",
+        "planState",
+        "usageNote",
+        "lastChargedDate",
+        "archived",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LedgerSavingsGoal": {
+      "title": "LedgerSavingsGoal",
+      "description": "Savings target synced across phone and computer.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Authenticated Firebase UID of the goal owner.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Goal title.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "categoryLabel": {
+          "type": "string",
+          "description": "Short goal category label.",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "targetAmount": {
+          "type": "number",
+          "description": "Target dollar amount."
+        },
+        "currentSaved": {
+          "type": "number",
+          "description": "Current accumulated balance."
+        },
+        "monthlyContribution": {
+          "type": "number",
+          "description": "Planned monthly deposit."
+        },
+        "targetDate": {
+          "type": "string",
+          "description": "Target completion date YYYY-MM-DD.",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "linkedAccount": {
+          "type": "string",
+          "description": "Destination savings account label.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "priority": {
+          "type": "string",
+          "description": "Goal priority tier.",
+          "maxLength": 20,
+          "enum": ["High", "Medium", "Flexible"]
+        },
+        "archived": {
+          "type": "boolean",
+          "description": "Terminal lock flag; once true, record cannot be mutated."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when goal was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest goal update."
+        }
+      },
+      "required": [
+        "ownerId",
+        "name",
+        "categoryLabel",
+        "targetAmount",
+        "currentSaved",
+        "monthlyContribution",
+        "targetDate",
+        "linkedAccount",
+        "priority",
+        "archived",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/ledgers/{userId}": {
+      "schema": { "$ref": "#/entities/LedgerWorkspace" },
+      "description": "Per-user root ledger workspace document storing category budget limits and device sync metadata."
+    },
+    "/ledgers/{userId}/transactions/{txId}": {
+      "schema": { "$ref": "#/entities/LedgerTransaction" },
+      "description": "User-owned subcollection of deduplicated financial transactions."
+    },
+    "/ledgers/{userId}/subscriptions/{subId}": {
+      "schema": { "$ref": "#/entities/LedgerSubscription" },
+      "description": "User-owned subcollection of recurring subscriptions and memberships."
+    },
+    "/ledgers/{userId}/savingsGoals/{goalId}": {
+      "schema": { "$ref": "#/entities/LedgerSavingsGoal" },
+      "description": "User-owned subcollection of personal savings goals."
+    }
+  }
+}

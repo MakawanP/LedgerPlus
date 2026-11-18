@@ -9,4 +9,5 @@ coverage/
 server.js
 data/
 dev-dist/
+release/
 

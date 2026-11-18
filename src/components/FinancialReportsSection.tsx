@@ -4,9 +4,11 @@ import {
   DashboardSummaryMetrics,
   MerchantRankItem,
   formatCurrency,
+  getEffectivePersonalSpend,
+  getTransactionSplitSummary,
 } from '../utils/financeMetrics';
 import { SpendingCategory, SubscriptionItem, Transaction } from '../types/finance';
-import { getBudgetHealthStatus } from './CategoryBudgetDistribution';
+import { BudgetProgressBar, getBudgetHealthStatus } from './CategoryBudgetDistribution';
 import { ProjectedCashFlowChart } from './ProjectedCashFlowChart';
 import { MerchantLogo } from './MerchantLogo';
 
@@ -50,7 +52,7 @@ export const FinancialReportsSection: React.FC<FinancialReportsSectionProps> = (
   const dailyData = useMemo(() => {
     const dayRows = novTransactions.filter((t) => t.date === selectedDate);
     const dayPurchases = dayRows.filter((t) => t.transactionType === 'purchase');
-    const dayTotal = dayPurchases.reduce((acc, t) => acc + t.amount, 0);
+    const dayTotal = dayPurchases.reduce((acc, t) => acc + getEffectivePersonalSpend(t), 0);
     return {
       dayRows,
       dayTotal,
@@ -68,11 +70,11 @@ export const FinancialReportsSection: React.FC<FinancialReportsSectionProps> = (
     });
 
     const purchases = inRange.filter((t) => t.transactionType === 'purchase');
-    const totalSpent = purchases.reduce((acc, t) => acc + t.amount, 0);
+    const totalSpent = purchases.reduce((acc, t) => acc + getEffectivePersonalSpend(t), 0);
 
     const byCatMap = new Map<SpendingCategory, number>();
     purchases.forEach((t) => {
-      byCatMap.set(t.category, (byCatMap.get(t.category) || 0) + t.amount);
+      byCatMap.set(t.category, (byCatMap.get(t.category) || 0) + getEffectivePersonalSpend(t));
     });
     const byCategory = Array.from(byCatMap.entries())
       .map(([category, amount]) => ({
@@ -82,9 +84,14 @@ export const FinancialReportsSection: React.FC<FinancialReportsSectionProps> = (
       }))
       .sort((a, b) => b.amount - a.amount);
 
-    const biggestPurchases = [...purchases].sort((a, b) => b.amount - a.amount).slice(0, 5);
+    const biggestPurchases = [...purchases]
+      .sort((a, b) => getEffectivePersonalSpend(b) - getEffectivePersonalSpend(a))
+      .slice(0, 5);
     const unusualItems = purchases.filter(
-      (t) => Boolean(t.anomalyNote) || Boolean(t.uncertainCategory) || t.amount >= 150
+      (t) =>
+        Boolean(t.anomalyNote) ||
+        Boolean(t.uncertainCategory) ||
+        getEffectivePersonalSpend(t) >= 150
     );
 
     return {
@@ -186,47 +193,57 @@ export const FinancialReportsSection: React.FC<FinancialReportsSectionProps> = (
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                {dailyData.dayRows.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                    <td className="py-3 pl-6 pr-3 font-mono text-slate-500 dark:text-slate-400">
-                      {tx.time || '—'}
-                    </td>
-                    <td className="py-3 px-3 font-medium text-slate-900 dark:text-slate-100">
-                      <div className="flex items-center gap-2.5">
-                        <MerchantLogo
-                          merchant={tx.merchant}
-                          rawDescription={tx.rawDescription}
-                          transactionType={tx.transactionType}
-                          paymentMethod={tx.paymentMethod}
-                          size="sm"
-                        />
-                        <span>
-                          {tx.merchant}
-                          {tx.transactionType !== 'purchase' && (
-                            <span className="text-slate-500 dark:text-slate-400 font-normal">
-                              {' '}· ({tx.transactionType})
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-slate-600 dark:text-slate-300">{tx.category}</td>
-                    <td className="py-3 px-3 text-slate-600 dark:text-slate-300">{tx.paymentMethod}</td>
-                    <td className="py-3 px-3 text-slate-600 dark:text-slate-300">
-                      {tx.mergedSources && tx.mergedSources.length > 1
-                        ? `${tx.mergedSources.map((m) => m.source).join(' + ')} (Deduplicated)`
-                        : tx.source}
-                    </td>
-                    <td className="py-3 px-3 text-slate-600 dark:text-slate-300 capitalize">
-                      {tx.status}
-                    </td>
-                    <td className="py-3 pl-3 pr-6 text-right font-mono tabular-nums font-medium text-slate-900 dark:text-slate-100">
-                      {tx.transactionType === 'refund'
-                        ? `-${formatCurrency(tx.amount)}`
-                        : formatCurrency(tx.amount)}
-                    </td>
-                  </tr>
-                ))}
+                {dailyData.dayRows.map((tx) => {
+                  const split = getTransactionSplitSummary(tx);
+                  return (
+                    <tr key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <td className="py-3 pl-6 pr-3 font-mono text-slate-500 dark:text-slate-400">
+                        {tx.time || '—'}
+                      </td>
+                      <td className="py-3 px-3 font-medium text-slate-900 dark:text-slate-100">
+                        <div className="flex items-center gap-2.5">
+                          <MerchantLogo
+                            merchant={tx.merchant}
+                            rawDescription={tx.rawDescription}
+                            transactionType={tx.transactionType}
+                            paymentMethod={tx.paymentMethod}
+                            size="sm"
+                          />
+                          <span>
+                            {tx.merchant}
+                            {tx.transactionType !== 'purchase' && (
+                              <span className="text-slate-500 dark:text-slate-400 font-normal">
+                                {' '}· ({tx.transactionType})
+                              </span>
+                            )}
+                            {split.isSplit && (
+                              <span className="text-amber-700 dark:text-amber-400 font-normal">
+                                {' '}· Split (Paid {formatCurrency(tx.amount)})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-slate-600 dark:text-slate-300">{tx.category}</td>
+                      <td className="py-3 px-3 text-slate-600 dark:text-slate-300">{tx.paymentMethod}</td>
+                      <td className="py-3 px-3 text-slate-600 dark:text-slate-300">
+                        {tx.mergedSources && tx.mergedSources.length > 1
+                          ? `${tx.mergedSources.map((m) => m.source).join(' + ')} (Deduplicated)`
+                          : tx.source}
+                      </td>
+                      <td className="py-3 px-3 text-slate-600 dark:text-slate-300 capitalize">
+                        {tx.status}
+                      </td>
+                      <td className="py-3 pl-3 pr-6 text-right font-mono tabular-nums font-medium text-slate-900 dark:text-slate-100">
+                        {tx.transactionType === 'refund'
+                          ? `-${formatCurrency(tx.amount)}`
+                          : split.isSplit
+                          ? formatCurrency(split.personalShare)
+                          : formatCurrency(tx.amount)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -298,12 +315,20 @@ export const FinancialReportsSection: React.FC<FinancialReportsSectionProps> = (
                         {formatCurrency(item.amount)} · {item.share.toFixed(1)}%
                       </span>
                     </div>
-                    <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-slate-900 dark:bg-slate-200 rounded-full"
-                        style={{ width: `${Math.min(100, Math.max(2, item.share))}%` }}
+                    <svg
+                      viewBox="0 0 100 4"
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                      className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden"
+                    >
+                      <rect
+                        x={0}
+                        y={0}
+                        width={Math.min(100, Math.max(2, item.share))}
+                        height={4}
+                        className="fill-slate-900 dark:fill-slate-200"
                       />
-                    </div>
+                    </svg>
                   </div>
                 ))}
               </div>
@@ -316,31 +341,34 @@ export const FinancialReportsSection: React.FC<FinancialReportsSectionProps> = (
                   Biggest Purchases This Week
                 </h3>
                 <div className="mt-3 divide-y divide-slate-200 dark:divide-slate-800 text-xs">
-                  {weeklyData.biggestPurchases.map((tx) => (
-                    <div key={tx.id} className="py-2.5 flex items-center justify-between gap-2.5">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <MerchantLogo
-                          merchant={tx.merchant}
-                          rawDescription={tx.rawDescription}
-                          transactionType={tx.transactionType}
-                          paymentMethod={tx.paymentMethod}
-                          size="sm"
-                        />
-                        <div className="min-w-0 truncate">
-                          <span className="font-medium text-slate-900 dark:text-slate-100">
-                            {tx.merchant}
-                          </span>
-                          <span aria-hidden="true" className="text-slate-300 dark:text-slate-700"> · </span>
-                          <span className="text-slate-500 dark:text-slate-400">{tx.category}</span>
-                          <span aria-hidden="true" className="text-slate-300 dark:text-slate-700"> · </span>
-                          <span className="font-mono text-slate-400 dark:text-slate-500">{tx.date}</span>
+                  {weeklyData.biggestPurchases.map((tx) => {
+                    const split = getTransactionSplitSummary(tx);
+                    return (
+                      <div key={tx.id} className="py-2.5 flex items-center justify-between gap-2.5">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <MerchantLogo
+                            merchant={tx.merchant}
+                            rawDescription={tx.rawDescription}
+                            transactionType={tx.transactionType}
+                            paymentMethod={tx.paymentMethod}
+                            size="sm"
+                          />
+                          <div className="min-w-0 truncate">
+                            <span className="font-medium text-slate-900 dark:text-slate-100">
+                              {tx.merchant}
+                            </span>
+                            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700"> · </span>
+                            <span className="text-slate-500 dark:text-slate-400">{tx.category}</span>
+                            <span aria-hidden="true" className="text-slate-300 dark:text-slate-700"> · </span>
+                            <span className="font-mono text-slate-400 dark:text-slate-500">{tx.date}</span>
+                          </div>
                         </div>
+                        <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100 shrink-0">
+                          {formatCurrency(split.personalShare)}
+                        </span>
                       </div>
-                      <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100 shrink-0">
-                        {formatCurrency(tx.amount)}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -467,17 +495,13 @@ export const FinancialReportsSection: React.FC<FinancialReportsSectionProps> = (
                       const health = getBudgetHealthStatus(cat.amount, limit);
                       const isExceeded = health.status === 'exceeded';
                       const isApproaching = health.status === 'approaching';
-                      const barWidth =
-                        limit > 0
-                          ? Math.min(100, Math.max(cat.amount > 0 ? 3 : 0, health.utilizationPercent))
-                          : Math.min(100, cat.percentageOfTotal);
 
                       return (
                         <tr
                           key={cat.category}
                           className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 ${
                             isExceeded
-                              ? 'bg-rose-50/20 dark:bg-rose-950/20'
+                              ? 'bg-red-50/35 dark:bg-red-950/20'
                               : isApproaching
                               ? 'bg-amber-50/20 dark:bg-amber-950/20'
                               : ''
@@ -493,36 +517,27 @@ export const FinancialReportsSection: React.FC<FinancialReportsSectionProps> = (
                               </span>
                               {limit > 0 && (
                                 <span
-                                  className={`text-[11px] font-mono ${
+                                  className={`text-[11px] font-mono tabular-nums ${
                                     isExceeded
-                                      ? 'text-rose-700 dark:text-rose-400 font-semibold'
+                                      ? 'text-red-700 dark:text-red-400 font-semibold'
                                       : isApproaching
                                       ? 'text-amber-700 dark:text-amber-400 font-semibold'
-                                      : 'text-slate-500 dark:text-slate-400'
+                                      : 'text-emerald-700 dark:text-emerald-400'
                                   }`}
                                 >
-                                  {health.utilizationPercent.toFixed(0)}% of budget
+                                  {isExceeded
+                                    ? `Over +${formatCurrency(health.overageAmount)} (${health.utilizationPercent.toFixed(0)}%)`
+                                    : `${health.utilizationPercent.toFixed(0)}% of budget`}
                                 </span>
                               )}
                             </div>
-                            <div className="relative w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full mt-1 overflow-hidden">
-                              {limit > 0 && (
-                                <div
-                                  aria-hidden="true"
-                                  className="absolute top-0 bottom-0 left-[80%] w-px bg-slate-300 dark:bg-slate-600 z-10"
-                                />
-                              )}
-                              <div
-                                className={`h-full rounded-full ${
-                                  isExceeded
-                                    ? 'bg-rose-600 dark:bg-rose-500'
-                                    : isApproaching
-                                    ? 'bg-amber-500 dark:bg-amber-400'
-                                    : 'bg-slate-800 dark:bg-slate-200'
-                                }`}
-                                style={{
-                                  width: `${barWidth}%`,
-                                }}
+                            <div className="mt-1.5">
+                              <BudgetProgressBar
+                                spent={cat.amount}
+                                limit={limit}
+                                fallbackSharePercent={cat.percentageOfTotal}
+                                label={cat.category}
+                                compact
                               />
                             </div>
                           </td>

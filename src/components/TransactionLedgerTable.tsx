@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Calendar,
+  Check,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -8,7 +9,9 @@ import {
   Layers,
   RotateCcw,
   Search,
+  Split,
   Tag,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
@@ -19,7 +22,11 @@ import {
   TransactionStatus,
   TransactionType,
 } from '../types/finance';
-import { formatCurrency } from '../utils/financeMetrics';
+import {
+  formatCurrency,
+  getEffectivePersonalSpend,
+  getTransactionSplitSummary,
+} from '../utils/financeMetrics';
 import { MerchantLogo } from './MerchantLogo';
 
 type DateRangePreset =
@@ -36,6 +43,11 @@ interface TransactionLedgerTableProps {
   transactions: Transaction[];
   onUpdateCategory: (id: string, category: SpendingCategory) => void;
   onUpdateStatus: (id: string, status: TransactionStatus) => void;
+  onDeleteTransactions: (ids: string[], reasonLabel?: string) => void;
+  onOpenSplitModal?: (tx: Transaction) => void;
+  onToggleSplitParticipantSettled?: (txId: string, participantId: string) => void;
+  onLoadStarterDemo?: () => void;
+  onOpenIngestModal?: () => void;
   compactLimit?: number;
 }
 
@@ -43,6 +55,11 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
   transactions,
   onUpdateCategory,
   onUpdateStatus,
+  onDeleteTransactions,
+  onOpenSplitModal,
+  onToggleSplitParticipantSettled,
+  onLoadStarterDemo,
+  onOpenIngestModal,
   compactLimit,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -53,9 +70,11 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('All');
   const [selectedSource, setSelectedSource] = useState<'All' | DataSource>('All');
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<
-    'all' | TransactionType | 'deduplicated' | 'uncertain'
+    'all' | TransactionType | 'split' | 'deduplicated' | 'uncertain'
   >('all');
   const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   const availablePaymentMethods = useMemo(() => {
     const methods = Array.from(new Set(transactions.map((t) => t.paymentMethod))).sort();
@@ -124,12 +143,18 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
         if (!matchesPrimary && !matchesMerged) return false;
       }
 
-      if (selectedTypeFilter === 'deduplicated' && (!tx.mergedSources || tx.mergedSources.length < 2)) {
+      if (selectedTypeFilter === 'split' && !getTransactionSplitSummary(tx).isSplit) {
+        return false;
+      } else if (
+        selectedTypeFilter === 'deduplicated' &&
+        (!tx.mergedSources || tx.mergedSources.length < 2)
+      ) {
         return false;
       } else if (selectedTypeFilter === 'uncertain' && !tx.uncertainCategory) {
         return false;
       } else if (
         selectedTypeFilter !== 'all' &&
+        selectedTypeFilter !== 'split' &&
         selectedTypeFilter !== 'deduplicated' &&
         selectedTypeFilter !== 'uncertain' &&
         tx.transactionType !== selectedTypeFilter
@@ -145,7 +170,24 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
         const inPayment = tx.paymentMethod.toLowerCase().includes(q);
         const inDate = tx.date.includes(q);
         const inAmount = tx.amount.toFixed(2).includes(q);
-        if (!inMerchant && !inRaw && !inCat && !inPayment && !inDate && !inAmount) {
+        const inSplitNote = Boolean(tx.splitBill?.note?.toLowerCase().includes(q));
+        const inSplitFriends = Boolean(
+          tx.splitBill?.participants?.some(
+            (p) =>
+              p.friendName.toLowerCase().includes(q) ||
+              Boolean(p.itemNote?.toLowerCase().includes(q))
+          )
+        );
+        if (
+          !inMerchant &&
+          !inRaw &&
+          !inCat &&
+          !inPayment &&
+          !inDate &&
+          !inAmount &&
+          !inSplitNote &&
+          !inSplitFriends
+        ) {
           return false;
         }
       }
@@ -171,8 +213,37 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
   const filteredPurchaseTotal = useMemo(() => {
     return filteredTransactions
       .filter((t) => t.transactionType === 'purchase')
-      .reduce((acc, t) => acc + t.amount, 0);
+      .reduce((acc, t) => acc + getEffectivePersonalSpend(t), 0);
   }, [filteredTransactions]);
+
+  const activeSelectedIds = useMemo(() => {
+    const existingSet = new Set(transactions.map((t) => t.id));
+    return selectedIds.filter((id) => existingSet.has(id));
+  }, [selectedIds, transactions]);
+
+  const allDisplayedSelected =
+    displayedRows.length > 0 && displayedRows.every((row) => activeSelectedIds.includes(row.id));
+
+  const handleToggleSelectRow = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAllDisplayed = () => {
+    const displayedIds = displayedRows.map((r) => r.id);
+    if (allDisplayedSelected) {
+      setSelectedIds((prev) => prev.filter((id) => !displayedIds.includes(id)));
+    } else {
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...displayedIds])));
+    }
+  };
+
+  const handleBulkDeleteSelected = () => {
+    if (activeSelectedIds.length === 0) return;
+    onDeleteTransactions(activeSelectedIds);
+    setSelectedIds([]);
+  };
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl md:rounded-xl overflow-hidden">
@@ -184,21 +255,93 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
               Unified Multi-Source Transaction Ledger
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Automated company icons alongside merchants · Each purchase counted once across Gmail, Apple Pay, and Bank feeds
+              Select checkboxes for bulk removal or click the trash icon on any row to delete test/unwanted records
             </p>
           </div>
 
-          {hasActiveFilters && (
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              className="min-h-[40px] md:min-h-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl md:rounded-lg transition-colors self-start lg:self-auto whitespace-nowrap shrink-0"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset All Filters</span>
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="min-h-[40px] md:min-h-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl md:rounded-lg transition-colors whitespace-nowrap shrink-0"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Reset All Filters</span>
+              </button>
+            )}
+
+            {transactions.length > 0 && (
+              confirmClearAll ? (
+                <div className="inline-flex items-center gap-1.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/70 px-2.5 py-1 rounded-lg text-xs">
+                  <span className="font-medium text-rose-800 dark:text-rose-200">
+                    Delete all {transactions.length} records?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onDeleteTransactions(
+                        transactions.map((t) => t.id),
+                        'Cleared all loaded transactions from local vault'
+                      );
+                      setSelectedIds([]);
+                      setConfirmClearAll(false);
+                    }}
+                    className="px-2 py-0.5 font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-md transition-colors"
+                  >
+                    Yes, Clear All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClearAll(false)}
+                    className="px-1.5 py-0.5 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmClearAll(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-400 bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/60 hover:bg-rose-100 dark:hover:bg-rose-950/60 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Clear All Loaded Transactions</span>
+                </button>
+              )
+            )}
+          </div>
         </div>
+
+        {/* Multi-Select Bulk Delete Bar */}
+        {activeSelectedIds.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 bg-rose-50/80 dark:bg-rose-950/35 border border-rose-200 dark:border-rose-800/70 rounded-lg text-xs">
+            <span className="font-medium text-rose-900 dark:text-rose-200">
+              <strong className="font-mono">{activeSelectedIds.length}</strong>{' '}
+              {activeSelectedIds.length === 1 ? 'transaction' : 'transactions'} selected for removal
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedIds([])}
+                className="px-2.5 py-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white font-medium"
+              >
+                Clear Selection
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkDeleteSelected}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-md transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>
+                  Delete {activeSelectedIds.length}{' '}
+                  {activeSelectedIds.length === 1 ? 'Transaction' : 'Transactions'}
+                </span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Search Input + Dropdown Filters Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 items-center">
@@ -345,6 +488,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
               [
                 { id: 'all', label: 'All Records' },
                 { id: 'purchase', label: 'Purchases' },
+                { id: 'split', label: 'Split / IOUs' },
                 { id: 'deduplicated', label: 'Merged' },
                 { id: 'uncertain', label: 'Needs Review' },
                 { id: 'refund', label: 'Refunds' },
@@ -368,7 +512,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
           </div>
 
           <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-            {displayedRows.length} of {filteredTransactions.length} records · Purchases:{' '}
+            {displayedRows.length} of {filteredTransactions.length} records · Your Net Spend:{' '}
             <strong className="text-slate-900 dark:text-slate-100">
               {formatCurrency(filteredPurchaseTotal)}
             </strong>
@@ -379,20 +523,51 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
       {/* MOBILE iOS TOUCH LIST (< 768px) — Zero Horizontal Scroll */}
       <div className="md:hidden divide-y divide-slate-100 dark:divide-slate-800">
         {displayedRows.length === 0 ? (
-          <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400">
-            No transactions match the current filter criteria.{' '}
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              className="text-slate-900 dark:text-slate-100 font-medium underline underline-offset-4 ml-1"
-            >
-              Reset filters
-            </button>
+          <div className="p-8 text-center text-xs text-slate-500 dark:text-slate-400 space-y-3">
+            {transactions.length === 0 ? (
+              <>
+                <p>
+                  Your ledger is ready. Load the starter demo dataset to explore budgets and reports, or import your own receipts and Gmail purchases.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  {onLoadStarterDemo && (
+                    <button
+                      type="button"
+                      onClick={onLoadStarterDemo}
+                      className="min-h-[40px] px-3.5 py-2 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors"
+                    >
+                      Load Starter Demo Data
+                    </button>
+                  )}
+                  {onOpenIngestModal && (
+                    <button
+                      type="button"
+                      onClick={onOpenIngestModal}
+                      className="min-h-[40px] px-3.5 py-2 font-medium text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                    >
+                      Import Receipt / Statement
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div>
+                No transactions match the current filter criteria.{' '}
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="text-slate-900 dark:text-slate-100 font-medium underline underline-offset-4 ml-1"
+                >
+                  Reset filters
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           displayedRows.map((tx) => {
             const isExpanded = expandedTxId === tx.id;
             const sourceCount = tx.mergedSources?.length || 1;
+            const splitSummary = getTransactionSplitSummary(tx);
             const categoryLabel =
               tx.transactionType === 'income'
                 ? 'Income / Payroll'
@@ -436,6 +611,22 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                         >
                           {categoryLabel}
                         </span>
+                        {splitSummary.isSplit && (
+                          <>
+                            <span aria-hidden="true"> · </span>
+                            <span
+                              className={
+                                splitSummary.owedUnpaid > 0
+                                  ? 'text-amber-700 dark:text-amber-400 font-medium'
+                                  : 'text-emerald-700 dark:text-emerald-400 font-medium'
+                              }
+                            >
+                              {splitSummary.owedUnpaid > 0
+                                ? `${formatCurrency(splitSummary.owedUnpaid)} owed`
+                                : 'Split settled'}
+                            </span>
+                          </>
+                        )}
                         {sourceCount > 1 && (
                           <>
                             <span aria-hidden="true"> · </span>
@@ -463,14 +654,20 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                           <span className="text-slate-400 dark:text-slate-500 line-through">
                             {formatCurrency(tx.amount)}
                           </span>
+                        ) : splitSummary.isSplit ? (
+                          <span className="text-slate-900 dark:text-slate-100">
+                            {formatCurrency(splitSummary.personalShare)}
+                          </span>
                         ) : (
                           <span className="text-slate-900 dark:text-slate-100">
                             {formatCurrency(tx.amount)}
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] capitalize text-slate-400 dark:text-slate-500">
-                        {tx.status}
+                      <div className="text-[10px] font-mono text-slate-400 dark:text-slate-500">
+                        {splitSummary.isSplit
+                          ? `Paid ${formatCurrency(tx.amount)}`
+                          : tx.status}
                       </div>
                     </div>
                     <ChevronRight
@@ -481,12 +678,62 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                   </div>
                 </button>
 
-                {/* Mobile Inline Category, Status & Provenance Drawer */}
+                {/* Mobile Inline Category, Split Bill, Status & Provenance Drawer */}
                 {isExpanded && (
                   <div className="px-4 pb-4 pt-1 bg-slate-50/90 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800 space-y-3 text-xs">
                     <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 break-all">
                       {tx.rawDescription} · {tx.paymentMethod}
                     </div>
+
+                    {splitSummary.isSplit && tx.splitBill && (
+                      <div className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl space-y-2">
+                        <div className="flex items-center justify-between text-[11px] font-medium text-slate-800 dark:text-slate-200">
+                          <span>
+                            Split Bill · Paid {formatCurrency(tx.amount)} · Your share{' '}
+                            {formatCurrency(splitSummary.personalShare)}
+                          </span>
+                        </div>
+                        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                          {tx.splitBill.participants.map((p) => (
+                            <div
+                              key={p.id}
+                              className="py-1.5 flex items-center justify-between gap-2 text-[11px]"
+                            >
+                              <div className="min-w-0 truncate">
+                                <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                  {p.friendName}
+                                </span>
+                                {p.itemNote && (
+                                  <span className="text-slate-500 dark:text-slate-400">
+                                    {' '}· {p.itemNote}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span
+                                  className={`font-mono tabular-nums font-semibold ${
+                                    p.status === 'settled'
+                                      ? 'text-emerald-700 dark:text-emerald-400 line-through'
+                                      : 'text-amber-700 dark:text-amber-400'
+                                  }`}
+                                >
+                                  {formatCurrency(p.amountOwed)}
+                                </span>
+                                {onToggleSplitParticipantSettled && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onToggleSplitParticipantSettled(tx.id, p.id)}
+                                    className="px-2 py-1 font-semibold text-[10px] rounded-md bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+                                  >
+                                    {p.status === 'settled' ? 'Mark Unpaid' : 'Mark Paid'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-2 gap-2.5">
                       {tx.transactionType !== 'income' && tx.transactionType !== 'transfer' && (
@@ -558,6 +805,28 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                         ))}
                       </div>
                     )}
+                    <div className="pt-1 flex items-center justify-between gap-2">
+                      {tx.transactionType === 'purchase' && onOpenSplitModal ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenSplitModal(tx)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-800 dark:text-slate-100 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                        >
+                          <Split className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                          <span>{splitSummary.isSplit ? 'Edit Bill Split' : 'Split Bill'}</span>
+                        </button>
+                      ) : (
+                        <span />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onDeleteTransactions([tx.id])}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/70 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete Transaction</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -571,33 +840,76 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 text-xs font-medium text-slate-500 dark:text-slate-400">
-              <th className="py-2.5 pl-6 pr-3 whitespace-nowrap">Date</th>
+              <th className="py-2.5 pl-5 pr-2 w-9">
+                <input
+                  type="checkbox"
+                  aria-label="Select all displayed transactions"
+                  checked={allDisplayedSelected}
+                  onChange={handleToggleSelectAllDisplayed}
+                  disabled={displayedRows.length === 0}
+                  className="rounded border-slate-300 dark:border-slate-600 text-slate-900 focus:ring-slate-500 cursor-pointer"
+                />
+              </th>
+              <th className="py-2.5 px-3 whitespace-nowrap">Date</th>
               <th className="py-2.5 px-3 whitespace-nowrap">Merchant / Store</th>
               <th className="py-2.5 px-3 whitespace-nowrap">Spending Category</th>
               <th className="py-2.5 px-3 whitespace-nowrap">Payment Method</th>
               <th className="py-2.5 px-3 whitespace-nowrap">Source & Deduplication</th>
               <th className="py-2.5 px-3 whitespace-nowrap">Status</th>
-              <th className="py-2.5 pl-3 pr-6 text-right whitespace-nowrap">Amount</th>
+              <th className="py-2.5 px-3 text-right whitespace-nowrap">Amount</th>
+              <th className="py-2.5 pl-2 pr-5 text-right whitespace-nowrap">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
             {displayedRows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-10 text-center text-slate-500 dark:text-slate-400">
-                  No transactions match the current filter criteria.{' '}
-                  <button
-                    type="button"
-                    onClick={handleResetFilters}
-                    className="text-slate-900 dark:text-slate-100 font-medium underline underline-offset-4 ml-1"
-                  >
-                    Reset filters
-                  </button>
+                <td colSpan={9} className="py-10 text-center text-slate-500 dark:text-slate-400">
+                  {transactions.length === 0 ? (
+                    <div className="max-w-lg mx-auto space-y-3">
+                      <p>
+                        Your ledger is currently empty. Start with our realistic starter demo dataset, scan Gmail receipts with permission, or upload a receipt/CSV statement.
+                      </p>
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        {onLoadStarterDemo && (
+                          <button
+                            type="button"
+                            onClick={onLoadStarterDemo}
+                            className="px-3.5 py-2 font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors"
+                          >
+                            Load Starter Demo Data
+                          </button>
+                        )}
+                        {onOpenIngestModal && (
+                          <button
+                            type="button"
+                            onClick={onOpenIngestModal}
+                            className="px-3.5 py-2 font-medium text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                          >
+                            Import Receipt / Demo Preset
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      No transactions match the current filter criteria.{' '}
+                      <button
+                        type="button"
+                        onClick={handleResetFilters}
+                        className="text-slate-900 dark:text-slate-100 font-medium underline underline-offset-4 ml-1"
+                      >
+                        Reset filters
+                      </button>
+                    </>
+                  )}
                 </td>
               </tr>
             ) : (
               displayedRows.map((tx) => {
                 const isExpanded = expandedTxId === tx.id;
+                const isRowSelected = activeSelectedIds.includes(tx.id);
                 const sourceCount = tx.mergedSources?.length || 1;
+                const splitSummary = getTransactionSplitSummary(tx);
                 const sourceNames =
                   tx.mergedSources && tx.mergedSources.length > 0
                     ? Array.from(new Set(tx.mergedSources.map((s) => s.source))).join(' · ')
@@ -607,10 +919,23 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                   <React.Fragment key={tx.id}>
                     <tr
                       className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors ${
-                        tx.uncertainCategory ? 'bg-amber-50/30 dark:bg-amber-950/20' : ''
+                        isRowSelected
+                          ? 'bg-rose-50/40 dark:bg-rose-950/20'
+                          : tx.uncertainCategory
+                          ? 'bg-amber-50/30 dark:bg-amber-950/20'
+                          : ''
                       } ${tx.transactionType === 'transfer' ? 'opacity-75' : ''}`}
                     >
-                      <td className="py-3 pl-6 pr-3 font-mono tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                      <td className="py-3 pl-5 pr-2 whitespace-nowrap">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${tx.merchant} (${formatCurrency(tx.amount)})`}
+                          checked={isRowSelected}
+                          onChange={() => handleToggleSelectRow(tx.id)}
+                          className="rounded border-slate-300 dark:border-slate-600 text-slate-900 focus:ring-slate-500 cursor-pointer"
+                        />
+                      </td>
+                      <td className="py-3 px-3 font-mono tabular-nums text-slate-600 dark:text-slate-300 whitespace-nowrap">
                         <div>{tx.date}</div>
                         {tx.time && (
                           <div className="text-[11px] text-slate-400 dark:text-slate-500">
@@ -631,6 +956,24 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                           <div className="min-w-0">
                             <div className="font-medium text-slate-900 dark:text-slate-100 flex items-center gap-1.5 flex-wrap">
                               <span>{tx.merchant}</span>
+                              {splitSummary.isSplit && tx.splitBill && (
+                                <span
+                                  className={`text-[11px] font-medium ${
+                                    splitSummary.owedUnpaid > 0
+                                      ? 'text-amber-700 dark:text-amber-400'
+                                      : 'text-emerald-700 dark:text-emerald-400'
+                                  }`}
+                                >
+                                  ·{' '}
+                                  {splitSummary.owedUnpaid > 0
+                                    ? tx.splitBill.participants.length === 1
+                                      ? `${tx.splitBill.participants[0].friendName} owes ${formatCurrency(
+                                          splitSummary.owedUnpaid
+                                        )}`
+                                      : `${formatCurrency(splitSummary.owedUnpaid)} owed to you`
+                                    : `${formatCurrency(splitSummary.settledReimbursed)} split paid back`}
+                                </span>
+                              )}
                               {tx.uncertainCategory && (
                                 <span className="text-[11px] font-medium text-amber-700 dark:text-amber-400">
                                   · Needs category confirmation
@@ -745,7 +1088,7 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                         </select>
                       </td>
 
-                      <td className="py-3 pl-3 pr-6 text-right font-mono tabular-nums font-medium whitespace-nowrap">
+                      <td className="py-3 px-3 text-right font-mono tabular-nums font-medium whitespace-nowrap">
                         {tx.transactionType === 'refund' ? (
                           <span className="text-emerald-700 dark:text-emerald-400">
                             -{formatCurrency(tx.amount)} (Refund)
@@ -758,25 +1101,157 @@ export const TransactionLedgerTable: React.FC<TransactionLedgerTableProps> = ({
                           <span className="text-slate-400 dark:text-slate-500 line-through">
                             {formatCurrency(tx.amount)}
                           </span>
+                        ) : splitSummary.isSplit ? (
+                          <div>
+                            <div className="text-slate-900 dark:text-slate-100 font-semibold">
+                              {formatCurrency(splitSummary.personalShare)}
+                            </div>
+                            <div className="text-[10px] font-normal text-slate-500 dark:text-slate-400">
+                              Paid {formatCurrency(tx.amount)} total
+                            </div>
+                          </div>
                         ) : (
                           <span className="text-slate-900 dark:text-slate-100">
                             {formatCurrency(tx.amount)}
                           </span>
                         )}
                       </td>
+
+                      <td className="py-3 pl-2 pr-5 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center justify-end gap-1">
+                          {tx.transactionType === 'purchase' && onOpenSplitModal && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenSplitModal(tx)}
+                              title={
+                                splitSummary.isSplit
+                                  ? `Edit bill split on "${tx.merchant}"`
+                                  : `Split "${tx.merchant}" (${formatCurrency(tx.amount)}) with friends`
+                              }
+                              className={`px-2 py-1 inline-flex items-center gap-1 text-[11px] font-medium rounded-lg transition-colors whitespace-nowrap ${
+                                splitSummary.isSplit
+                                  ? 'text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 hover:bg-amber-100 dark:hover:bg-amber-950/70'
+                                  : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              <Split className="w-3 h-3" />
+                              <span>{splitSummary.isSplit ? 'Edit Split' : 'Split'}</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => onDeleteTransactions([tx.id])}
+                            title={`Delete "${tx.merchant}" (${formatCurrency(tx.amount)})`}
+                            aria-label={`Delete transaction ${tx.merchant} for ${formatCurrency(tx.amount)}`}
+                            className="p-1.5 inline-flex items-center justify-center text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
 
                     {isExpanded && (
                       <tr className="bg-slate-50/90 dark:bg-slate-800/50">
-                        <td colSpan={7} className="px-6 py-3.5 border-l-0">
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between text-xs">
+                        <td colSpan={9} className="px-6 py-3.5 border-l-0">
+                          <div className="space-y-3">
+                            {splitSummary.isSplit && tx.splitBill && (
+                              <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg space-y-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                  <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                    Split Bill Breakdown · Paid {formatCurrency(tx.amount)} · Your share{' '}
+                                    {formatCurrency(splitSummary.personalShare)}
+                                    {tx.splitBill.note ? ` · "${tx.splitBill.note}"` : ''}
+                                  </span>
+                                  {onOpenSplitModal && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onOpenSplitModal(tx)}
+                                      className="inline-flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white font-medium underline underline-offset-4"
+                                    >
+                                      <Split className="w-3 h-3" />
+                                      <span>Edit Split</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                                  {tx.splitBill.participants.map((p) => (
+                                    <div
+                                      key={p.id}
+                                      className="p-2.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-between gap-2 text-xs"
+                                    >
+                                      <div className="min-w-0">
+                                        <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                          {p.friendName}
+                                        </div>
+                                        <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                                          {p.itemNote || 'Covered share'} ·{' '}
+                                          {p.status === 'settled' ? 'Paid back' : 'Owes you'}
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 shrink-0">
+                                        <span
+                                          className={`font-mono tabular-nums font-semibold ${
+                                            p.status === 'settled'
+                                              ? 'text-emerald-700 dark:text-emerald-400 line-through'
+                                              : 'text-amber-700 dark:text-amber-400'
+                                          }`}
+                                        >
+                                          {formatCurrency(p.amountOwed)}
+                                        </span>
+                                        {onToggleSplitParticipantSettled && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              onToggleSplitParticipantSettled(tx.id, p.id)
+                                            }
+                                            className={`inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold rounded-md transition-colors ${
+                                              p.status === 'settled'
+                                                ? 'bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
+                                                : 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                                            }`}
+                                          >
+                                            <Check className="w-3 h-3" />
+                                            <span>
+                                              {p.status === 'settled' ? 'Undo' : 'Paid'}
+                                            </span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-between text-xs gap-4">
                               <span className="font-semibold text-slate-800 dark:text-slate-200">
                                 Cross-Source Reconciliation Trail — Counted Once ({formatCurrency(tx.amount)})
                               </span>
-                              <span className="text-slate-500 dark:text-slate-400 font-mono">
-                                Canonical ID: {tx.id}
-                              </span>
+                              <div className="flex items-center gap-3">
+                                <span className="text-slate-500 dark:text-slate-400 font-mono">
+                                  Canonical ID: {tx.id}
+                                </span>
+                                {tx.transactionType === 'purchase' && onOpenSplitModal && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenSplitModal(tx)}
+                                    className="inline-flex items-center gap-1 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white font-medium"
+                                  >
+                                    <Split className="w-3.5 h-3.5" />
+                                    <span>{splitSummary.isSplit ? 'Edit Split' : 'Split Bill'}</span>
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteTransactions([tx.id])}
+                                  className="inline-flex items-center gap-1 text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 font-medium"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Delete Record</span>
+                                </button>
+                              </div>
                             </div>
                             {tx.mergedSources && tx.mergedSources.length > 0 ? (
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">

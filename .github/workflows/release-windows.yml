@@ -1,0 +1,98 @@
+name: Build & Publish Windows Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Version tag for GitHub Release (e.g., v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    name: Windows 10/11 Release (x64 Standalone + Portable)
+    runs-on: windows-latest
+    env:
+      NODE_RUNTIME_VERSION: '22.14.0'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript check
+        run: npm run lint
+
+      - name: Build Portable Windows Release (.zip)
+        run: npm run release:windows
+
+      - name: Bundle Standalone Zero-Dependency Windows x64 Release (with embedded node.exe)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          $nodeVer = $env:NODE_RUNTIME_VERSION
+          $nodeZipUrl = "https://nodejs.org/dist/v$nodeVer/node-v$nodeVer-win-x64.zip"
+
+          Write-Host "Downloading official Node.js v$nodeVer Windows x64 runtime..."
+          Invoke-WebRequest -Uri $nodeZipUrl -OutFile "$RUNNER_TEMP\node-win-x64.zip"
+          Expand-Archive -Path "$RUNNER_TEMP\node-win-x64.zip" -DestinationPath "$RUNNER_TEMP\node-extracted" -Force
+
+          $standaloneStage = "release\LedgerPulse-Windows-x64-Standalone"
+          Copy-Item -Path "release\LedgerPulse-Windows" -Destination $standaloneStage -Recurse -Force
+          New-Item -ItemType Directory -Path "$standaloneStage\runtime" -Force | Out-Null
+          Copy-Item -Path "$RUNNER_TEMP\node-extracted\node-v$nodeVer-win-x64\node.exe" -Destination "$standaloneStage\runtime\node.exe" -Force
+
+          $standaloneZip = "release\LedgerPulse-Windows-x64-Standalone-v$ver.zip"
+          Compress-Archive -Path $standaloneStage -DestinationPath $standaloneZip -CompressionLevel Optimal -Force
+
+          # Generate SHA256SUMS.txt
+          $hashes = Get-ChildItem "release\*.zip" | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$h  $($_.Name)"
+          }
+          $hashes | Set-Content -Path "release\SHA256SUMS.txt" -Encoding UTF8
+
+      - name: Upload Windows Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LedgerPulse-Windows-Releases
+          path: |
+            release/*.zip
+            release/SHA256SUMS.txt
+
+      - name: Publish to GitHub Releases
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+          name: LedgerPulse for Windows (${{ github.event.inputs.release_tag || github.ref_name }})
+          generate_release_notes: true
+          body: |
+            ## LedgerPulse for Windows 10 / 11
+
+            ### Which file should I download?
+            - **`LedgerPulse-Windows-x64-Standalone-*.zip` (Recommended — Zero Prerequisites)**: Includes an embedded Windows x64 runtime (`runtime\node.exe`). Unzip anywhere and double-click **`Install-Windows-App.bat`** to add Desktop & Start Menu shortcuts and launch silently in a native desktop app window.
+            - **`LedgerPulse-Windows-v*.zip` (Lightweight Portable)**: Pre-bundled server + PWA client (~2 MB, zero `npm install` needed; uses an existing Node.js 20+ installation).
+
+            ### Highlights
+            - Silent zero-console desktop window launcher (`LedgerPulse.vbs`) + Desktop/Start Menu `.ico` shortcut installer (`Install-Windows-App.bat`)
+            - Real-time Phone & Windows PC Cloud Sync + In-App Gmail Receipt Scanner
+            - Split Bills & Friend Reimbursements Tracker, Personal Savings Goals, Automated Subscription Watchdog, and Split-Segment Category Budgets
+          files: |
+            release/*.zip
+            release/SHA256SUMS.txt

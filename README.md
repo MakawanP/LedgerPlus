@@ -1,182 +1,160 @@
-# LedgerPulse — Personal AI Finance & Spending Tracker
+# LedgerPulse — Personal Finance, Split Bills & Multi-Device Ledger
 
-**LedgerPulse** is a local-first **Windows Desktop Application** for personal financial tracking and spending intelligence. It stores 100% of your financial ledger locally on your Windows PC and automatically pulls, deduplicates, categorizes, and audits transactions from Apple Pay / card webhook notifications, a local watched receipt & statement folder (`data/inbox/`), uploaded CSV/PDF statements, receipt images, and manual cash logs—without requiring cloud database storage or Google Cloud OAuth.
+**Repository:** [https://github.com/MakawanP/LedgerPulse](https://github.com/MakawanP/LedgerPulse)
+
+**LedgerPulse** is a full-stack personal finance, bill-splitting, and spending intelligence application built for **Windows 10/11 Desktop, macOS, and Mobile**. It combines **local-first PC storage** (`data/local-ledger-vault.json` + native `Ctrl+S` file linking) with optional **real-time multi-device Cloud Sync** (Firebase Auth & Firestore with offline persistence) and **in-app Gmail receipt scanning**, while enforcing strict accounting guardrails so shared bills, refunds, transfers, and cross-channel duplicates never distort your true personal spend.
 
 ---
 
 ## UI Demo & Screenshots
 
-### 1. Windows Desktop Overview, Local PC Vault & Category Budgets
-> Executive 8-metric running summary, linked local Windows vault (`data/local-ledger-vault.json` + `Ctrl+S` native PC file sync), automated Apple Pay & `data/inbox/` background pull status, category budget threshold bars, and personal savings vaults.
+### 1. Executive Overview & Category Budget Distribution
+> Clean executive 8-metric summary, split-segment category budget progress bars (green on track, amber at 80%, red split overage above 100%), and integrated spending insights.
 
-![LedgerPulse Windows Desktop Overview Dashboard](./src/assets/images/ui_overview_dashboard_1794953972355.jpg)
+![LedgerPulse Overview Dashboard](./src/assets/images/ui_overview_dashboard_1794953972355.jpg)
 
-### 2. Unified Ledger, Cash Flow Forecasting & Multimodal Receipt OCR
+### 2. Unified Transaction Ledger & Monthly Cash Flow Forecast
 
-| Unified Transaction Ledger & Provenance Audit (Light Mode) | Projected Cash Flow & Subscription Vigilance |
+| Unified Transaction Ledger & Provenance Audit (Light Mode) | Projected Cash Flow & Subscription Watchdog |
 | :---: | :---: |
-| ![Unified Transaction Ledger and Cross-Source Provenance Audit](./src/assets/images/ui_transaction_ledger_1794953973764.jpg) | ![Monthly Cash Flow Forecast and Subscription Vigilance Alerts](./src/assets/images/ui_cashflow_reports_1794953978636.jpg) |
-| *Searchable ledger with automated merchant logos and expandable cross-source duplicate verification (`$0.00` double-counted).* | *Interactive end-of-month balance trajectory with simulated unused-subscription cancellation and price-hike alerts.* |
+| ![Unified Transaction Ledger and Cross-Source Provenance Audit](./src/assets/images/ui_transaction_ledger_1794953973764.jpg) | ![Monthly Cash Flow Forecast and Subscription Watchdog Alerts](./src/assets/images/ui_cashflow_reports_1794953978636.jpg) |
+| *Searchable ledger with automated merchant logos, bill-split badges, and expandable cross-source duplicate verification (`$0.00` double-counted).* | *Interactive end-of-month balance trajectory paired with subscription price-hike and >3-month inactivity alerts.* |
 
-### 3. Multimodal Receipt & PDF Statement Vision OCR
-> Drag-and-drop receipt photos or PDF bank statements from Windows Explorer (or paste via `Ctrl+V`) to transcribe line items, tax, tip, and exact total charged before reconciling against existing ledger entries.
+### 3. Multimodal Receipt & PDF Statement OCR
+> Drag-and-drop receipt photos or PDF bank statements (or capture from your phone camera / paste via `Ctrl+V`) to extract line items, tax, tip, and exact total charged before reconciling against existing ledger entries.
 
-![Multimodal Receipt and Statement Vision OCR Modal](./src/assets/images/ui_receipt_ocr_1794953979139.jpg)
+![Multimodal Receipt and Statement OCR Modal](./src/assets/images/ui_receipt_ocr_1794953979139.jpg)
+
+---
+
+## Streamlined 5-Tab Workspace Architecture
+
+LedgerPulse organizes every workflow in a focused 5-tab navigation order across desktop (`>=1024px` top bar, `768px–1023px` tablet strip) and mobile (`Overview`, `Tx & Subs`, `Reports`, `Goals`, `Splits`):
+
+1. **Overview**: High-signal executive summary combining the 8-metric running KPI grid, conditional uncertain-category review queue, monthly category budget bars, and **Spending Insights & Live Ledger Audit** (all 6 diagnostic pillars + interactive natural-language ledger Q&A)—kept free of duplicate tables or subscription alert clutter.
+2. **Transactions & Subscriptions (`Tx & Subs` on Mobile)**: Unites the searchable, multi-facet filterable **Transaction Ledger** (merchant logos, inline category/status editing, per-row bill splitting, provenance audit drawers, bulk delete, and undo) with **Recurring Subscriptions & Bills** and the **Automated Subscription Watchdog — Price Increases & >3-Month Inactivity Alerts**. Includes a segmented subview switcher (`Combined View`, `Transactions`, `Subscriptions & Watchdog`) and 1-click subscription cancellation that redirects saved monthly spend directly into a chosen Savings Goal.
+3. **Reports**: Daily itemized logs, Weekly 7-day category & top-purchase breakdowns, and Monthly executive statements with an interactive SVG **Projected Monthly Cash Flow & End-of-Month Balance Forecast** chart.
+4. **Savings Goals (`Goals` on Mobile)**: Dedicated **Personal Savings Goals & Automated Monthly Allocations** view with **directly editable Total Saved balances** (both via the top `Total Saved Across Goals` KPI card and inline per goal alongside Target and Monthly Contribution), quick `+$100` / `+$250` deposits, and **1-click Undo Delete** (in both the inline Savings Goals banner and notification bar) that restores deleted goals locally and in Cloud Firestore.
+5. **Split Bills (`Splits` on Mobile)**: Dedicated **Split Bills & Friend Reimbursements Tracker**. When you cover a shared tab (for example, paying **$20.00** at a coffee shop where **$10.00** is a friend's drink), only your **$10.00** personal share counts toward monthly spending and category budgets while your friend's **$10.00** is tracked under open balances until marked paid back.
+
+---
+
+## Windows 10 / 11 Desktop Release & Packaging
+
+LedgerPulse ships with a zero-console Windows 10/11 desktop app packager (`npm run release:windows`) and an automated GitHub Actions release workflow:
+
+### Option A — Download Directly from the App or GitHub Releases
+1. Click **Windows Release (.zip)** in the app's **Sync & Gmail** panel (or footer), or download `LedgerPulse-Windows-v1.0.0.zip` / `LedgerPulse-Windows-Standalone-x64.zip` from **[GitHub Releases](https://github.com/MakawanP/LedgerPulse/releases)**.
+2. Extract the `.zip` folder anywhere on your Windows 10 or Windows 11 PC (for example `C:\Apps\LedgerPulse`).
+3. Double-click **`Install-Windows-App.bat`** once to create **Desktop** and **Start Menu** shortcuts with the custom `ledgerpulse.ico` icon.
+4. Launch **LedgerPulse** from your Desktop or Start Menu (`LedgerPulse.vbs`)—starts the local vault server silently in the background with **no black Command Prompt window** and opens LedgerPulse in standalone Edge/Chrome `--app` mode. Use `Stop-LedgerPulse-Server.bat` anytime to stop the background server.
+
+### Option B — Build the Windows Release Package Locally
+```bash
+npm run release:windows
+```
+Generates:
+- `public/ledgerpulse.ico` — Native Windows multi-header icon
+- `release/LedgerPulse-Windows/` — Bundled `dist/` client + standalone `server.cjs` + `LedgerPulse.vbs` + `Install-Windows-App.bat` + `Stop-LedgerPulse-Server.bat`
+- `release/LedgerPulse-Windows-v1.0.0.zip` — Distributable Windows release archive (also served at `GET /api/release/windows.zip`)
+
+### Option C — Automated GitHub Releases (`.github/workflows/release-windows.yml`)
+Push a version tag (e.g. `git tag v1.0.0 && git push origin v1.0.0`) or trigger the **Release Windows Desktop Package** workflow manually in GitHub Actions to build and publish both:
+- **`LedgerPulse-Windows-Portable-v*.zip`** (lightweight package using system Node.js)
+- **`LedgerPulse-Windows-Standalone-x64-v*.zip`** (self-contained zero-prerequisite bundle with `runtime\node.exe` embedded)
 
 ---
 
 ## Core Capabilities & Features
 
-### 1. Multi-Source Transaction Collection & Multimodal Receipt OCR
-- **Multi-Channel Ingestion**: Consolidates financial activity from **Gmail** (receipts, bills, subscription notices), **Bank & Credit Card Statements**, **Apple Pay** notifications, **Uploaded Statements**, and **Cash / Manual** entries.
-- **Drag-and-Drop Receipt Image & PDF OCR**: Drop or paste PNG, JPG, WEBP, HEIC receipt photos or multi-page PDF invoices directly into the **Collect & Reconcile** modal. Multimodal Vision OCR transcribes line items, tax, tip, merchant details, payment tender, and exact total charged—complete with a one-click sample thermal receipt generator for instant testing.
-- **Quick Add Floating Speed-Dial**: Log physical cash purchases or one-off income payouts from anywhere on the dashboard in seconds, automatically routing records and deduplicating against existing ledger entries.
+### 1. Split Bills & Friend Reimbursements
+- **True Personal Spend Accounting**: Split any existing purchase from the ledger or log a split purchase directly from the **Split Bills** tab or floating **Quick Add (`+`)** menu.
+- **Multi-Friend & 50/50 Presets**: Assign exact dollar amounts or 50/50 splits across one or multiple friends with optional item notes (e.g., `"Friend's drink"`).
+- **Reimbursement Lifecycle**: Filter by `All Splits`, `Unpaid`, or `Paid Back`, search by friend or merchant, settle individual shares (`Mark Paid` / `Mark Unpaid`), or batch-settle all open shares for a friend in one click.
 
-### 2. Cross-Source Deduplication & Accounting Integrity
-- **Zero Double-Counting**: Detects when the same real-world purchase appears across multiple channels (e.g., Gmail order receipt + Apple Pay tap notification + posted credit card statement) and merges them into a single verified ledger entry with an expandable **Cross-Source Provenance Audit** drawer.
-- **Strict Record Separation**: Distinguishes **Posted** vs. **Pending** authorizations, tracks **Refunds** separately to offset gross purchase spend, records **Income** deposits, and excludes internal **Account Transfers** from spending totals.
-- **Verbatim Amounts Only**: Uses exact transaction amounts rather than estimates and never fabricates missing records.
+### 2. Editable Savings Goals & Instant Undo Delete
+- **Editable Saved Balances**: Click any goal's saved dollar amount, click `Edit Saved / Target / Monthly`, or click `Edit` on the **Total Saved Across Goals** KPI card to adjust saved balances directly.
+- **Undo Deleted Goals**: Deleting a savings goal surfaces an immediate **Undo Delete** button both inside the Savings Goals header banner and in the top notification bar, restoring the goal and re-syncing to Firestore in one click.
 
-### 3. Automated 16-Category Classification & Uncertain Queue
-- **16 Standardized Categories**:
-  - `Food & Restaurants` · `Coffee & Drinks` · `Groceries` · `Shopping & Retail`
-  - `Transportation / Uber / Taxi` · `Gas & Parking` · `Bills & Utilities` · `Rent & Housing`
-  - `Travel & Hotels` · `Entertainment` · `Health & Fitness` · `Subscriptions`
-  - `Personal Care` · `Shopping Online` · `Education` · `Other / Uncategorized`
-- **Uncertain Classification Queue**: Ambiguous merchant descriptors (such as multi-department retailers or generic payment processor tags) are surfaced for one-click user confirmation instead of guessing silently.
+### 3. Real-Time Phone & Computer Sync + In-App Gmail Connection
+- **Collapsible Sync & Gmail Hub**: Sign in with Google inside the app to enable live Firestore synchronization across your phone and computer (backed by IndexedDB offline caching so edits work offline and sync automatically on reconnect).
+- **Read-Only Gmail Receipt Scanner**: Connect Gmail (`gmail.readonly`) in-app to scan recent order confirmations, ride receipts, and billing notices directly in the browser and reconcile them against your ledger without server-side credential storage.
+- **Starter Demo & Channel Presets**: Starts with a clean ledger; load the **Starter Demo** (including sample split bills, subscriptions, budgets, and goals) or individual channel import packs anytime, and delete rows or reset the ledger in one click.
 
-### 4. Unified Transaction Ledger & Automated Merchant Logos
-- **Automated Merchant Favicon & Logo Service**: Resolves company domains from merchant names and raw descriptors (stripping POS prefixes like `SQ *`, `TST*`, and `APL*`), fetching and caching company icons via `/api/merchant-logo` with clean monogram and semantic icon fallbacks.
-- **Fast Search & Multi-Facet Filtering**: Filter transactions instantaneously by merchant/descriptor search query, date window (Today, Last 7 Days, Full Month, Custom Date Range), spending category, payment method, and record classification.
+### 4. Split-Segment Category Budgets & 16 Standardized Categories
+- **Three-State Visual Progress Bars**:
+  - **Green (`<80%`)**: On track within monthly budget.
+  - **Amber (`80%–99%`)**: Approaching monthly category limit (with an 80% threshold tick).
+  - **Red Split Bar (`100%+`)**: Displays the base budget limit alongside a distinct crimson overage segment showing exact dollar overrun.
+- **16 Standardized Categories**: `Food & Restaurants`, `Coffee & Drinks`, `Groceries`, `Shopping & Retail`, `Transportation / Uber / Taxi`, `Gas & Parking`, `Bills & Utilities`, `Rent & Housing`, `Travel & Hotels`, `Entertainment`, `Health & Fitness`, `Subscriptions`, `Personal Care`, `Shopping Online`, `Education`, and `Other / Uncategorized`.
 
-### 5. Monthly Category Budgets & Utilization Tracking
-- **Per-Category Spending Limits**: Configure custom monthly budgets across all 16 categories inline or via batch editing, persisted locally in `localStorage`.
-- **Visual Threshold Alerts**: Progress bars with an 80% warning marker automatically highlight categories **Approaching Limit (80%–99%)** in amber and **Exceeded (100%+)** in rose.
-
-### 6. Subscriptions Tracker & Automated Vigilance Alerts
-- **Recurring Commitments**: Tracks monthly subscriptions, annual memberships, and recurring utility bills with normalized monthly and estimated annual costs.
-- **Automated Price-Hike & Inactivity Alerts**: Flags recurring subscriptions whose billing amount increased compared to prior cycles as well as subscriptions inactive for more than 3 months (90+ days), with direct actions to acknowledge or mark for cancellation.
-
-### 7. Personal Savings Goals & Cash Allocation
-- **High-Yield Vault Tracking**: Create and manage savings goals with target amounts, target dates, priority tiers, destination accounts, quick deposit logging (`+$100` / `+$250`), and live calculation of unallocated monthly net cash flow surplus.
-
-### 8. Daily, Weekly & Monthly Financial Reports + Cash Flow Forecast
-- **Daily Report**: Itemized transaction log and exact daily purchase total for any selected date.
-- **Weekly Report**: 7-day spending totals, category share breakdown, biggest purchases, and unusual/high-variance transactions.
-- **Monthly Statement & Projected Cash Flow Chart**: Full executive cash flow summary (gross spend, refunds, net spend, verified income, net cash flow, recurring expenses, Top 10 merchants, month-over-month comparison, and savings opportunities) paired with an interactive SVG **Projected Monthly Cash Flow & End-of-Month Balance Forecast** chart supporting trend scenarios and simulated unused-subscription cancellation.
-
-### 9. AI Spending Insights & Dual Light / Dark Theme
-- **Diagnostic Pillars & Live Audit**: Highlights top spend categories, unusual purchases, increasing MoM patterns, duplicate authorizations, forgotten subscriptions, and interactive natural-language ledger audits.
-- **Light & Dark Mode**: Persistent dual-theme interface synced with `localStorage`, iOS status bar `theme-color`, and OS `prefers-color-scheme` with zero initial paint flash.
-
-### 10. Windows Desktop Application, 100% Local PC Storage & Automated Data Pull
-- **One-Click Windows Desktop Launcher**: Double-click `start-windows-app.bat` on Windows 10/11 to launch the local engine and open LedgerPulse in a dedicated chromeless desktop window (`--app` mode), or install directly to your Windows Start Menu & Taskbar.
-- **Three-Tier Local PC Storage**:
-  1. **Native Windows File System Linking (`Ctrl+S` / `Ctrl+O`)**: Link any `.json` file on your PC (e.g., `Documents\LedgerPulse\my-ledger.json`) via the File System Access API so every edit auto-writes directly to your chosen file.
-  2. **Automatic Local Disk Vault (`data/local-ledger-vault.json`)**: Every transaction, category confirmation, budget update, subscription change, and savings deposit is automatically persisted on disk by the local server (`GET` / `POST /api/local-vault`).
-  3. **Browser Local Cache**: Instantaneous offline fallback in `localStorage`.
-- **Automated Background Data Pull (Zero Cloud OAuth Required)**:
-  - **Apple Pay & Card Notification Webhook (`/api/apple-pay/webhook`)**: Receives automated transaction payloads and queues them locally in `data/apple-pay-queue.json`.
-  - **Local Watched Drop-Folder (`data/inbox/`)**: Drop `.eml` email receipts, `.csv` bank exports, `.pdf` statements, or receipt images into `data/inbox/`—background auto-pull extracts exact amounts, **auto-posts high-confidence matches** (deduplicating against existing entries), **flags uncertain items** for review, and archives processed files to `data/inbox/processed/`.
+### 5. Cross-Source Deduplication & Local PC Vault
+- **Zero Double-Counting**: Merges duplicate captures of the same purchase across Gmail receipts, Apple Pay notifications, and posted card statements into a single verified entry with an expandable **Cross-Source Provenance Audit** drawer.
+- **Three-Tier Local Persistence**: Native File System linking (`Ctrl+S` / `Ctrl+O`), automatic disk vault persistence (`data/local-ledger-vault.json`), and installable offline-ready PWA caching.
 
 ---
 
 ## Tech Stack
 
-- **Frontend**: React 19, TypeScript, Tailwind CSS v4, Lucide Icons, Vite
-- **Backend**: Node.js, Express (`server.ts`), TypeScript (`tsx`)
-- **AI & Multimodal OCR**: `@google/genai` SDK (structured JSON schema extraction for receipt Vision OCR, statement parsing, and financial audit insights)
+- **Frontend**: React 19, TypeScript, Tailwind CSS v4 (dual Light/Dark theme with `@custom-variant dark`), Lucide Icons, Vite, `vite-plugin-pwa`
+- **Cloud & Auth**: Firebase Authentication (Google Sign-In + Gmail OAuth token flow) & Cloud Firestore (hardened `firestore.rules` + offline IndexedDB persistence)
+- **Backend & Windows Packaging**: Node.js, Express (`server.ts`), `esbuild` standalone CJS bundler (`scripts/build-windows-release.mjs`), Windows WScript/Batch desktop launchers
 
 ---
 
 ## Project Structure
 
 ```text
-├── start-windows-app.bat               # One-click Windows 10/11 desktop app launcher
-├── index.html                          # App entry HTML + pre-paint theme initialization
-├── server.ts                           # Express API + local disk vault + watched inbox & webhook engine
-├── package.json                        # Scripts and dependencies
-├── .env.example                        # Required environment variable template
-├── data/                               # Git-ignored local PC storage directory (created automatically)
-│   ├── local-ledger-vault.json         # Automatic local disk ledger database
-│   ├── apple-pay-queue.json            # Queued incoming Apple Pay / card webhook notifications
-│   └── inbox/                          # Watched folder for .eml receipts, CSVs, PDFs & images
+├── start-windows-app.bat               # Root Windows 10/11 launcher (Standalone / Portable / Dev)
+├── windows/                            # Windows 10/11 desktop launcher & shortcut scripts
+│   ├── LedgerPulse.vbs                 # Silent zero-console Windows desktop app launcher
+│   ├── Install-Windows-App.bat         # Creates Desktop & Start Menu shortcuts with ledgerpulse.ico
+│   └── Stop-LedgerPulse-Server.bat     # Stops background LedgerPulse local vault server
+├── scripts/
+│   └── build-windows-release.mjs       # Builds dist/, server.cjs, ledgerpulse.ico & Windows .zip
+├── .github/workflows/
+│   └── release-windows.yml             # Publishes Portable & Standalone x64 ZIPs to GitHub Releases
+├── index.html                          # Entry HTML + pre-paint dark/light theme initialization
+├── server.ts                           # Express API + local disk vault + Windows release ZIP endpoint
+├── vite.config.ts                      # Vite + Tailwind v4 + PWA service worker & manifest config
+├── firebase-blueprint.json             # Firestore schema blueprint & entity validation constraints
+├── firestore.rules                     # Hardened owner-scoped Firestore security rules
+├── package.json                        # Scripts (dev, build, lint, release:windows) & dependencies
 └── src/
-    ├── assets/images/                  # UI demo screenshots & visual assets for GitHub README
-    ├── App.tsx                         # Main Windows desktop workspace, local vault sync & navigation
-    ├── index.css                       # Typography, Tailwind CSS v4 setup & custom dark variant
-    ├── types/finance.ts                # Core TypeScript models & 16 spending categories
-    ├── data/sampleFinanceData.ts       # Multi-source sample ledger, subscriptions, budgets & goals
-    ├── utils/
-    │   ├── financeMetrics.ts           # Net spend, MoM delta, subscription alerts & ranking calculations
-    │   └── merchantLogo.ts             # Merchant brand normalization & domain inference
-    └── components/
-        ├── WindowsVaultAndSyncPanel.tsx # Local PC file linking (Ctrl+S/O), Windows install & Auto-Pull bar
-        ├── RunningSummaryGrid.tsx      # 8-metric executive running summary strip
-        ├── UncertainQueuePanel.tsx     # Interactive category confirmation banner
-        ├── SubscriptionAlertsPanel.tsx # Price increase & 3+ month inactivity alert banner
-        ├── CategoryBudgetDistribution.tsx # Category spend & budget utilization progress bars
-        ├── TransactionLedgerTable.tsx  # Searchable, filterable ledger with provenance drawer
-        ├── SubscriptionsTracker.tsx    # Recurring bills, memberships & annual cost table
-        ├── SavingsGoalsSection.tsx     # Savings vaults & monthly surplus allocation
-        ├── FinancialReportsSection.tsx # Daily, Weekly & Monthly financial statements
-        ├── ProjectedCashFlowChart.tsx  # Interactive SVG end-of-month cash flow forecast chart
-        ├── SpendingInsightsView.tsx    # 6 diagnostic insight pillars & live AI ledger audit
-        ├── IngestSourceModal.tsx       # Drag-and-drop Receipt/PDF OCR & manual entry modal
-        ├── QuickAddFloatingMenu.tsx    # Floating quick-add menu for cash & one-off income
-        └── MerchantLogo.tsx            # Resilient company favicon/logo avatar with fallback
+    ├── App.tsx                         # 5-tab workspace, real-time cloud sync & local vault state
+    ├── components/
+    │   ├── RunningSummaryGrid.tsx      # 8-metric executive summary with quick navigation
+    │   ├── CategoryBudgetDistribution.tsx # Split-segment budget bars & Over-Budget/Highest Spend toggle
+    │   ├── SpendingInsightsView.tsx    # Integrated Overview insights, 6 diagnostic pillars & live Q&A
+    │   ├── TransactionLedgerTable.tsx  # Searchable ledger, inline split badges & provenance drawer
+    │   ├── SubscriptionsTracker.tsx    # Recurring bills table + exclusive Subscription Watchdog
+    │   ├── SubscriptionAlertsPanel.tsx # Price increase & >3-month inactivity watchdog alerts
+    │   ├── FinancialReportsSection.tsx # Daily, Weekly & Monthly statements + Cash Flow Forecast
+    │   ├── SavingsGoalsSection.tsx     # Editable Total Saved balances, allocations & Undo Delete
+    │   ├── SplitBillsSummaryPanel.tsx  # Dedicated Split Bills & Friend Reimbursements tracker
+    │   ├── WindowsVaultAndSyncPanel.tsx # Cloud Sync, Gmail, Apple Pay, Local Vault & Windows .zip
+    │   └── MobileBottomNav.tsx         # 5-tab mobile nav (Overview / Tx & Subs / Reports / Goals / Splits)
+    └── services/firebaseAndGmail.ts    # Firebase Auth, real-time Firestore sync & Gmail API scanner
 ```
 
 ---
 
-## How to Run Locally
+## Getting Started Locally
 
-### Prerequisites
-- **Node.js** `v20+` (Node `v22.6+` recommended if running `npm start` directly)
-- **npm** (or `bun` / `pnpm`)
-- A **Gemini API Key** (required for live Receipt/PDF Vision OCR and live AI Audit queries; all dashboard analytics, filtering, budgets, cash flow forecasting, and merchant favicons work out of the box)
-
-### 1. Clone the Repository
 ```bash
-git clone <YOUR_GITHUB_REPO_URL>
-cd ledgerpulse-personal-finance-tracker
-```
-
-### 2. Install Dependencies
-```bash
+# 1. Clone and install dependencies
+git clone https://github.com/MakawanP/LedgerPulse.git
+cd LedgerPulse
 npm install
-```
 
-### 3. Configure Environment Variables
-Copy `.env.example` to `.env` and add your API key:
-```bash
+# 2. Configure optional environment variables
 cp .env.example .env
-```
 
-Edit `.env`:
-```env
-GEMINI_API_KEY="your_actual_api_key_here"
-APP_URL="http://localhost:3000"
-```
-
-### 4. Launch on Windows 10 / 11
-- **Option A (One-Click Windows App Window)**: Double-click **`start-windows-app.bat`** in Windows Explorer. It automatically creates `data\inbox\`, starts the local server, and opens LedgerPulse in a standalone native Windows app window.
-- **Option B (Terminal)**:
-```bash
+# 3. Start development server on http://localhost:3000
 npm run dev
-```
-Open **`http://localhost:3000`** in Microsoft Edge or Chrome (click **Install Windows App** in the top bar or the address bar install icon to pin LedgerPulse to your Windows Start Menu and Taskbar).
 
-### 5. Typecheck & Build for Production
-```bash
-# Run TypeScript static type validation
-npm run lint
-
-# Build optimized production client assets into dist/
-npm run build
-
-# Run the production server (serve dist/ + Express API on port 3000)
-NODE_ENV=production npm run dev
+# 4. Build standalone Windows 10/11 release package (.zip)
+npm run release:windows
 ```
 
 ---
@@ -185,13 +163,12 @@ NODE_ENV=production npm run dev
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/local-vault` | Reads the user's persisted local ledger vault (`data/local-ledger-vault.json`) from disk |
-| `POST` | `/api/local-vault` | Writes updated transactions, budgets, subscriptions, and savings goals to local PC disk |
+| `GET` | `/api/release/windows.zip` | Downloads the packaged Windows 10/11 desktop release (`LedgerPulse-Windows-v1.0.0.zip`) |
+| `GET` | `/api/local-vault` | Reads the persisted local ledger vault (`data/local-ledger-vault.json`) from disk |
+| `POST` | `/api/local-vault` | Saves transactions, split shares, budgets, subscriptions, and goals to disk |
 | `GET` | `/api/auto-pull/status` | Returns pending counts for queued Apple Pay notifications and `data/inbox/` files |
-| `POST` | `/api/auto-pull/sync` | Drains Apple Pay webhook queue + `data/inbox/` receipts/CSVs/PDFs, deduplicates, and archives processed files |
-| `POST` | `/api/apple-pay/webhook` | Local webhook endpoint for incoming Apple Pay / card transaction alerts |
-| `POST` | `/api/apple-pay/simulate` | Queues a sample Apple Pay alert locally to test end-to-end automated ingestion |
-| `POST` | `/api/local-inbox/drop-sample` | Writes a sample `.eml` receipt into `data/inbox/` to test watched-folder ingestion |
-| `POST` | `/api/finance/parse-source` | Multimodal Vision OCR & raw text parser for receipt images, PDFs, alerts, and CSV statements |
+| `POST` | `/api/auto-pull/sync` | Processes queued Apple Pay alerts + `data/inbox/` receipts/CSVs/PDFs |
+| `POST` | `/api/apple-pay/webhook` | Webhook endpoint for incoming Apple Pay / card transaction notifications |
+| `POST` | `/api/finance/parse-source` | Multimodal receipt image, PDF invoice, and statement parser |
 | `POST` | `/api/finance/audit-insights` | Grounded spending audit and natural-language Q&A over verified ledger figures |
 | `GET` | `/api/merchant-logo?domain=...` | Cached merchant favicon/logo resolver with multi-provider fallback |
